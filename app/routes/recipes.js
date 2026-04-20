@@ -31,9 +31,17 @@ function fetchRecipe(id) {
 }
 
 router.get('/recipes', (req, res) => {
-  const recipes = db.prepare('SELECT * FROM recipes ORDER BY archived, meal_type, name').all();
+  const recipes = db.prepare('SELECT * FROM recipes ORDER BY meal_type, name').all();
   const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10)) : null;
-  res.render('recipes', { title: 'Recipes', recipes, editing });
+  const counts = {
+    total: recipes.length,
+    breakfast: recipes.filter(r => r.meal_type === 'breakfast').length,
+    lunch: recipes.filter(r => r.meal_type === 'lunch').length,
+    snack: recipes.filter(r => r.meal_type === 'snack').length,
+    dinner: recipes.filter(r => r.meal_type === 'dinner').length,
+    favorite: recipes.filter(r => r.favorite).length
+  };
+  res.render('recipes', { title: 'Recipes', recipes, editing, counts });
 });
 
 router.post('/recipes', (req, res) => {
@@ -99,10 +107,16 @@ router.post('/recipes/:id', (req, res) => {
   res.redirect('/recipes');
 });
 
-router.post('/recipes/:id/archive', (req, res) => {
+router.post('/recipes/:id/favorite', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const current = db.prepare('SELECT archived FROM recipes WHERE id = ?').get(id);
-  if (current) db.prepare('UPDATE recipes SET archived = ? WHERE id = ?').run(current.archived ? 0 : 1, id);
+  const current = db.prepare('SELECT favorite FROM recipes WHERE id = ?').get(id);
+  if (current) db.prepare('UPDATE recipes SET favorite = ? WHERE id = ?').run(current.favorite ? 0 : 1, id);
+  res.redirect(req.get('referer') || '/recipes');
+});
+
+router.post('/recipes/:id/delete', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  db.prepare('DELETE FROM recipes WHERE id = ?').run(id);
   res.redirect('/recipes');
 });
 

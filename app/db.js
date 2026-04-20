@@ -49,7 +49,6 @@ CREATE TABLE IF NOT EXISTS recipes (
   sugar REAL,
   sodium REAL,
   favorite INTEGER NOT NULL DEFAULT 0,
-  archived INTEGER NOT NULL DEFAULT 0,
   notes TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );

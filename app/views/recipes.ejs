@@ -1,92 +1,231 @@
 <%- include('partials/header') %>
-<h1>Recipes</h1>
-<div class="grid two">
-  <section class="card">
-    <h2><%= editing ? 'Edit recipe' : 'New recipe' %></h2>
-    <form method="post" action="<%= editing ? '/recipes/' + editing.id : '/recipes' %>" class="stack">
-      <label>Name <input name="name" required value="<%= editing ? editing.name : '' %>" /></label>
+<div class="recipes-header">
+  <h1>Recipes <span class="count-badge"><%= counts.total %></span></h1>
+  <button class="btn primary" type="button" onclick="toggleForm()"><%= editing ? 'Close editor' : '+ New recipe' %></button>
+</div>
+
+<% /* New/Edit form — collapsed by default unless editing */ %>
+<section class="card recipe-form-card" id="recipe-form-card" style="<%= editing ? '' : 'display:none' %>">
+  <h2><%= editing ? 'Edit recipe' : 'New recipe' %></h2>
+  <form method="post" action="<%= editing ? '/recipes/' + editing.id : '/recipes' %>" class="stack">
+    <div class="row">
+      <label style="flex:2 1 300px">Name <input name="name" required value="<%= editing ? editing.name : '' %>" /></label>
+      <label>Meal type
+        <select name="meal_type">
+          <% ['breakfast','lunch','snack','dinner'].forEach(function(t) { %>
+            <option value="<%= t %>" <%= editing && editing.meal_type === t ? 'selected' : '' %>><%= t %></option>
+          <% }) %>
+        </select>
+      </label>
+      <label>Cuisine <input name="cuisine" value="<%= editing && editing.cuisine ? editing.cuisine : '' %>" /></label>
+    </div>
+    <div class="row">
+      <label>Prep (min) <input name="prep_time" type="number" min="1" value="<%= editing ? editing.prep_time : 20 %>" /></label>
+      <label>Servings <input name="servings" type="number" min="1" value="<%= editing ? editing.servings : 2 %>" /></label>
+      <label>Cost ($) <input name="est_cost" type="number" step="0.01" min="0" value="<%= editing ? editing.est_cost : 8 %>" /></label>
+      <label class="inline" style="flex:0 1 auto"><input type="checkbox" name="kid_friendly" <%= editing && editing.kid_friendly ? 'checked' : '' %>/> kid-friendly</label>
+      <label class="inline" style="flex:0 1 auto"><input type="checkbox" name="favorite" <%= editing && editing.favorite ? 'checked' : '' %>/> favorite</label>
+    </div>
+    <fieldset>
+      <legend>Nutrition (optional)</legend>
       <div class="row">
-        <label>Meal type
-          <select name="meal_type">
-            <% ['breakfast','lunch','snack','dinner'].forEach(function(t) { %>
-              <option value="<%= t %>" <%= editing && editing.meal_type === t ? 'selected' : '' %>><%= t %></option>
-            <% }) %>
-          </select>
-        </label>
-        <label>Cuisine <input name="cuisine" value="<%= editing && editing.cuisine ? editing.cuisine : '' %>" /></label>
+        <label>Calories <input name="calories" type="number" value="<%= editing && editing.calories ? editing.calories : '' %>" /></label>
+        <label>Protein (g) <input name="protein" type="number" step="0.1" value="<%= editing && editing.protein ? editing.protein : '' %>" /></label>
+        <label>Fiber (g) <input name="fiber" type="number" step="0.1" value="<%= editing && editing.fiber ? editing.fiber : '' %>" /></label>
+        <label>Sugar (g) <input name="sugar" type="number" step="0.1" value="<%= editing && editing.sugar ? editing.sugar : '' %>" /></label>
+        <label>Sodium (mg) <input name="sodium" type="number" step="0.1" value="<%= editing && editing.sodium ? editing.sodium : '' %>" /></label>
       </div>
-      <div class="row">
-        <label>Prep time (min) <input name="prep_time" type="number" min="1" value="<%= editing ? editing.prep_time : 20 %>" /></label>
-        <label>Servings <input name="servings" type="number" min="1" value="<%= editing ? editing.servings : 2 %>" /></label>
-        <label>Est. cost ($) <input name="est_cost" type="number" step="0.01" min="0" value="<%= editing ? editing.est_cost : 8 %>" /></label>
-      </div>
-      <div class="row">
-        <label class="inline"><input type="checkbox" name="kid_friendly" <%= editing && editing.kid_friendly ? 'checked' : '' %>/> kid-friendly</label>
-        <label class="inline"><input type="checkbox" name="favorite" <%= editing && editing.favorite ? 'checked' : '' %>/> favorite</label>
-      </div>
-      <fieldset>
-        <legend>Nutrition (optional)</legend>
-        <div class="row">
-          <label>Calories <input name="calories" type="number" value="<%= editing && editing.calories ? editing.calories : '' %>" /></label>
-          <label>Protein (g) <input name="protein" type="number" step="0.1" value="<%= editing && editing.protein ? editing.protein : '' %>" /></label>
-          <label>Fiber (g) <input name="fiber" type="number" step="0.1" value="<%= editing && editing.fiber ? editing.fiber : '' %>" /></label>
-          <label>Sugar (g) <input name="sugar" type="number" step="0.1" value="<%= editing && editing.sugar ? editing.sugar : '' %>" /></label>
-          <label>Sodium (mg) <input name="sodium" type="number" step="0.1" value="<%= editing && editing.sodium ? editing.sodium : '' %>" /></label>
-        </div>
-      </fieldset>
-      <label>Notes <textarea name="notes"><%= editing && editing.notes ? editing.notes : '' %></textarea></label>
-      <fieldset>
-        <legend>Ingredients</legend>
-        <table class="grid-table">
-          <thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th>Brand</th></tr></thead>
-          <tbody id="ings">
-            <% var ings = editing && editing.ingredients.length ? editing.ingredients : [{name:'',quantity:1,unit:'each',brand_preference:''}]; ings.forEach(function(i) { %>
-              <tr>
-                <td><input name="ing_name" value="<%= i.name %>" /></td>
-                <td><input name="ing_qty" type="number" step="0.01" min="0" value="<%= i.quantity %>" /></td>
-                <td><input name="ing_unit" value="<%= i.unit %>" /></td>
-                <td><input name="ing_brand" value="<%= i.brand_preference || '' %>" /></td>
-              </tr>
-            <% }) %>
-          </tbody>
-        </table>
-        <button type="button" class="btn" onclick="addIng()">Add ingredient</button>
-      </fieldset>
+    </fieldset>
+    <label>Notes <textarea name="notes"><%= editing && editing.notes ? editing.notes : '' %></textarea></label>
+    <fieldset>
+      <legend>Ingredients</legend>
+      <table class="grid-table">
+        <thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th>Brand</th></tr></thead>
+        <tbody id="ings">
+          <% var ings = editing && editing.ingredients.length ? editing.ingredients : [{name:'',quantity:1,unit:'each',brand_preference:''}]; ings.forEach(function(i) { %>
+            <tr>
+              <td><input name="ing_name" value="<%= i.name %>" /></td>
+              <td><input name="ing_qty" type="number" step="0.01" min="0" value="<%= i.quantity %>" /></td>
+              <td><input name="ing_unit" value="<%= i.unit %>" /></td>
+              <td><input name="ing_brand" value="<%= i.brand_preference || '' %>" /></td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+      <button type="button" class="btn" onclick="addIng()">+ Ingredient</button>
+    </fieldset>
+    <div class="row">
       <button class="btn primary" type="submit"><%= editing ? 'Save changes' : 'Create recipe' %></button>
       <% if (editing) { %><a class="btn" href="/recipes">Cancel</a><% } %>
-    </form>
-  </section>
+    </div>
+  </form>
+</section>
 
-  <section class="card">
-    <h2>All recipes</h2>
-    <table class="grid-table">
-      <thead><tr><th>Name</th><th>Meal</th><th>Prep</th><th>Cost</th><th>Fav</th><th></th></tr></thead>
-      <tbody>
-        <% recipes.forEach(function(r) { %>
-          <tr class="<%= r.archived ? 'archived' : '' %>">
-            <td><%= r.name %><% if (r.kid_friendly) { %> <span class="tag">kid</span><% } %></td>
-            <td><%= r.meal_type %></td>
-            <td><%= r.prep_time %>m</td>
-            <td>$<%= r.est_cost.toFixed(2) %></td>
-            <td><%= r.favorite ? '★' : '' %></td>
-            <td>
-              <a class="link" href="/recipes?edit=<%= r.id %>">edit</a>
-              <form method="post" action="/recipes/<%= r.id %>/archive" style="display:inline">
-                <button class="link" type="submit"><%= r.archived ? 'unarchive' : 'archive' %></button>
-              </form>
-            </td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  </section>
-</div>
+<% /* Filter/search bar */ %>
+<section class="card recipe-controls">
+  <div class="tab-row">
+    <button class="tab active" data-meal="all" type="button">All <span class="count"><%= counts.total %></span></button>
+    <button class="tab" data-meal="breakfast" type="button">Breakfast <span class="count"><%= counts.breakfast %></span></button>
+    <button class="tab" data-meal="lunch" type="button">Lunch <span class="count"><%= counts.lunch %></span></button>
+    <button class="tab" data-meal="snack" type="button">Snack <span class="count"><%= counts.snack %></span></button>
+    <button class="tab" data-meal="dinner" type="button">Dinner <span class="count"><%= counts.dinner %></span></button>
+    <button class="tab" data-meal="favorite" type="button">★ Favorites <span class="count"><%= counts.favorite %></span></button>
+  </div>
+  <div class="control-row">
+    <input id="search" type="text" placeholder="Search name, cuisine, ingredient…" />
+    <label class="inline"><input id="kid-only" type="checkbox" /> kid-friendly only</label>
+    <label class="inline sort-label">Sort by
+      <select id="sort">
+        <option value="name">name</option>
+        <option value="prep_time">prep ↑</option>
+        <option value="-prep_time">prep ↓</option>
+        <option value="est_cost">cost ↑</option>
+        <option value="-est_cost">cost ↓</option>
+        <option value="calories">calories ↑</option>
+        <option value="-calories">calories ↓</option>
+        <option value="cuisine">cuisine</option>
+      </select>
+    </label>
+    <span class="muted tiny" id="visible-count"></span>
+  </div>
+</section>
+
+<% /* Recipes table */ %>
+<section class="card recipe-table-card">
+  <table class="grid-table recipe-table">
+    <thead>
+      <tr>
+        <th style="width:24px"></th>
+        <th>Name</th>
+        <th>Meal</th>
+        <th>Cuisine</th>
+        <th>Prep</th>
+        <th>Serv</th>
+        <th>Cost</th>
+        <th>Cal</th>
+        <th>Tags</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="recipe-rows">
+      <% recipes.forEach(function(r) { %>
+        <tr
+          data-meal="<%= r.meal_type %>"
+          data-favorite="<%= r.favorite ? '1' : '0' %>"
+          data-kid="<%= r.kid_friendly ? '1' : '0' %>"
+          data-name="<%= r.name.toLowerCase() %>"
+          data-cuisine="<%= (r.cuisine || '').toLowerCase() %>"
+          data-prep-time="<%= r.prep_time %>"
+          data-est-cost="<%= r.est_cost %>"
+          data-calories="<%= r.calories || 0 %>"
+        >
+          <td class="fav-cell">
+            <form method="post" action="/recipes/<%= r.id %>/favorite" style="display:inline">
+              <button class="fav-btn <%= r.favorite ? 'on' : '' %>" title="toggle favorite" type="submit"><%= r.favorite ? '★' : '☆' %></button>
+            </form>
+          </td>
+          <td class="name-cell"><%= r.name %></td>
+          <td><span class="tag meal-tag meal-<%= r.meal_type %>"><%= r.meal_type %></span></td>
+          <td class="muted"><%= r.cuisine || '—' %></td>
+          <td><%= r.prep_time %>m</td>
+          <td><%= r.servings %></td>
+          <td>$<%= r.est_cost.toFixed(2) %></td>
+          <td class="muted"><%= r.calories || '—' %></td>
+          <td>
+            <% if (r.kid_friendly) { %><span class="tag kid-tag">kid</span><% } %>
+          </td>
+          <td class="actions">
+            <a class="link" href="/recipes?edit=<%= r.id %>">edit</a>
+            <form method="post" action="/recipes/<%= r.id %>/delete" class="delete-form" data-name="<%= r.name %>" style="display:inline">
+              <button class="link delete-link" type="submit">delete</button>
+            </form>
+          </td>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+  <p id="empty-hint" class="muted" style="display:none; padding:20px; text-align:center">No recipes match these filters.</p>
+</section>
+
 <script>
+function toggleForm() {
+  var c = document.getElementById('recipe-form-card');
+  c.style.display = (c.style.display === 'none' || !c.style.display) ? 'block' : 'none';
+}
 function addIng() {
   var tbody = document.getElementById('ings');
   var tr = document.createElement('tr');
   tr.innerHTML = '<td><input name="ing_name"/></td><td><input name="ing_qty" type="number" step="0.01" min="0" value="1"/></td><td><input name="ing_unit" value="each"/></td><td><input name="ing_brand"/></td>';
   tbody.appendChild(tr);
 }
+
+(function() {
+  var tbody = document.getElementById('recipe-rows');
+  var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
+  var search = document.getElementById('search');
+  var kidOnly = document.getElementById('kid-only');
+  var sort = document.getElementById('sort');
+  var tabs = document.querySelectorAll('.tab');
+  var counter = document.getElementById('visible-count');
+  var empty = document.getElementById('empty-hint');
+  var activeMeal = 'all';
+
+  // Confirm before delete — safely binds the recipe name at runtime.
+  document.querySelectorAll('.delete-form').forEach(function(f) {
+    f.addEventListener('submit', function(e) {
+      var name = f.dataset.name || 'this recipe';
+      if (!confirm('Delete "' + name + '"? This cannot be undone.')) e.preventDefault();
+    });
+  });
+
+  function apply() {
+    var q = (search.value || '').toLowerCase().trim();
+    var visible = 0;
+    rows.forEach(function(r) {
+      var meal = r.dataset.meal;
+      var fav = r.dataset.favorite === '1';
+      var kid = r.dataset.kid === '1';
+      var text = r.dataset.name + ' ' + r.dataset.cuisine;
+      var mealMatch = activeMeal === 'all' || (activeMeal === 'favorite' ? fav : meal === activeMeal);
+      var kidMatch = kidOnly.checked ? kid : true;
+      var qMatch = !q || text.indexOf(q) >= 0;
+      var show = mealMatch && kidMatch && qMatch;
+      r.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    counter.textContent = visible + ' shown';
+    empty.style.display = visible === 0 ? '' : 'none';
+  }
+
+  function applySort() {
+    var key = sort.value;
+    var dir = 1;
+    if (key.charAt(0) === '-') { dir = -1; key = key.substring(1); }
+    // Convert snake_case to camelCase for dataset access
+    var dsKey = key.replace(/_([a-z])/g, function(_, c) { return c.toUpperCase(); });
+    var numeric = (key === 'prep_time' || key === 'est_cost' || key === 'calories');
+    rows.sort(function(a, b) {
+      var av = a.dataset[dsKey] || '';
+      var bv = b.dataset[dsKey] || '';
+      if (numeric) return (parseFloat(av) - parseFloat(bv)) * dir;
+      return av.localeCompare(bv) * dir;
+    });
+    rows.forEach(function(r) { tbody.appendChild(r); });
+  }
+
+  tabs.forEach(function(t) {
+    t.addEventListener('click', function() {
+      tabs.forEach(function(x) { x.classList.remove('active'); });
+      t.classList.add('active');
+      activeMeal = t.dataset.meal;
+      apply();
+    });
+  });
+  search.addEventListener('input', apply);
+  kidOnly.addEventListener('change', apply);
+  sort.addEventListener('change', function() { applySort(); apply(); });
+
+  apply();
+})();
 </script>
 <%- include('partials/footer') %>

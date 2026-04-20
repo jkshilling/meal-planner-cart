@@ -54,7 +54,7 @@ router.get('/plan/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const plan = planner.loadPlan(id);
   if (!plan) return res.status(404).render('error', { title: 'Not Found', message: 'Plan not found' });
-  const allRecipes = db.prepare('SELECT id, name, meal_type FROM recipes WHERE archived = 0 ORDER BY meal_type, name').all();
+  const allRecipes = db.prepare('SELECT id, name, meal_type FROM recipes ORDER BY meal_type, name').all();
   const shopping = db.prepare('SELECT * FROM shopping_items WHERE plan_id = ? ORDER BY name').all(id);
   const matches = db.prepare(`SELECT wm.*, si.name as item_name FROM walmart_matches wm
     JOIN shopping_items si ON wm.shopping_item_id = si.id

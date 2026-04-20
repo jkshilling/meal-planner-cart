@@ -20,7 +20,7 @@ function loadProfile(profileId) {
 }
 
 function loadRecipes() {
-  const recipes = db.prepare('SELECT * FROM recipes WHERE archived = 0').all();
+  const recipes = db.prepare('SELECT * FROM recipes').all();
   const ings = db.prepare('SELECT * FROM recipe_ingredients').all();
   const byId = {};
   for (const r of recipes) { r.ingredients = []; byId[r.id] = r; }
