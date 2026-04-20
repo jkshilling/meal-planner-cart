@@ -1,7 +1,13 @@
 <%- include('partials/header') %>
 <h1>Weekly Planner</h1>
-<p class="muted">No plan yet. Generate one using your current settings and recipes.</p>
-<form method="post" action="/planner/generate">
-  <button class="btn primary" type="submit">Generate weekly plan</button>
-</form>
+<section class="card" style="text-align:center; padding: 48px 28px;">
+  <h2 style="margin-bottom: 10px;">Ready when you are.</h2>
+  <p class="muted" style="margin: 0 auto 24px; max-width: 440px;">
+    Pull together a week of meals from your recipes, scored against your budget,
+    prep time, and the people in your household.
+  </p>
+  <form method="post" action="/planner/generate">
+    <button class="btn primary" type="submit" style="padding: 12px 24px; font-size: 15px;">Generate weekly plan</button>
+  </form>
+</section>
 <%- include('partials/footer') %>
