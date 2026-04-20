@@ -202,3 +202,5 @@ tr.fail td { background: #fef2f2; }
 .kid-tag { background: #e0e7ff; color: #4338ca; }
 .delete-link { color: #b91c1c; }
 .delete-link:hover { color: #991b1b; }
+
+.tag.confirmed-mapping { background: #dcfce7; color: #166534; }

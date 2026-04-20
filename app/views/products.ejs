@@ -1,0 +1,55 @@
+<%- include('partials/header') %>
+<h1>Walmart product cache</h1>
+<p class="muted">Grows automatically as you run Walmart matches. User-confirmed mappings short-circuit future searches for the same ingredient.</p>
+
+<section class="card summary">
+  <div><strong><%= summary.products %></strong> products known</div>
+  <div><strong><%= summary.price_points %></strong> price observations</div>
+  <div><strong><%= summary.mappings %></strong> ingredient mappings (<strong><%= summary.confirmed_mappings %></strong> user-confirmed)</div>
+</section>
+
+<% if (!products.length) { %>
+  <section class="card">
+    <p class="muted">No products cached yet. Run a Walmart match on an approved plan to start building the list.</p>
+  </section>
+<% } else { %>
+  <section class="card">
+    <table class="grid-table">
+      <thead>
+        <tr><th>Product</th><th>Size</th><th>Latest price</th><th>Last seen</th><th>Mapped ingredients</th><th></th></tr>
+      </thead>
+      <tbody>
+        <% products.forEach(function(p) { %>
+          <tr>
+            <td>
+              <% if (p.product_url) { %><a href="<%= p.product_url %>" target="_blank"><%= p.name %></a><% } else { %><%= p.name %><% } %>
+              <% if (p.brand) { %><div class="muted tiny"><%= p.brand %></div><% } %>
+            </td>
+            <td><%= p.size_text || '—' %></td>
+            <td><%= p.latest_price != null ? ('$' + p.latest_price.toFixed(2)) : '—' %></td>
+            <td class="muted tiny"><%= p.last_seen_at %></td>
+            <td>
+              <% if (!p.mapped_ingredients.length) { %>
+                <span class="muted tiny">no mappings</span>
+              <% } else { %>
+                <% p.mapped_ingredients.forEach(function(m) { %>
+                  <span class="tag <%= m.user_confirmed ? 'confirmed-mapping' : '' %>">
+                    <%= m.ingredient_name %><% if (m.user_confirmed) { %> ✓<% } %>
+                    <form method="post" action="/products/mapping/<%= m.id || '' %>/delete" style="display:inline">
+                    </form>
+                  </span>
+                <% }) %>
+              <% } %>
+            </td>
+            <td>
+              <form method="post" action="/products/<%= p.id %>/delete" onsubmit="return confirm('Remove this product from the cache?')" style="display:inline">
+                <button class="link delete-link" type="submit">remove</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </section>
+<% } %>
+<%- include('partials/footer') %>

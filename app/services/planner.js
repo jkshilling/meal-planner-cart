@@ -1,4 +1,5 @@
 const db = require('../db');
+const productCache = require('./product_cache');
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -70,9 +71,10 @@ function lunchScopeForSlot(profile) {
 }
 
 function scoreRecipe(recipe, ctx) {
-  const { profile, usedCounts, remainingBudget, slotsLeft, mealType } = ctx;
+  const { profile, usedCounts, remainingBudget, slotsLeft, mealType, costOverrides } = ctx;
   const perSlotBudget = slotsLeft > 0 ? remainingBudget / slotsLeft : recipe.est_cost;
-  const cost = recipe.est_cost * householdSize(profile) / Math.max(1, recipe.servings);
+  const rawCost = (costOverrides && costOverrides[recipe.id] != null) ? costOverrides[recipe.id] : recipe.est_cost;
+  const cost = rawCost * householdSize(profile) / Math.max(1, recipe.servings);
 
   // Budget score: 1 if cost <= perSlot, scales down sharply above.
   const budgetScore = cost <= perSlotBudget ? 1 : Math.max(0, 1 - (cost - perSlotBudget) / Math.max(1, perSlotBudget));
@@ -140,6 +142,18 @@ function generatePlan(profileId) {
   const allRecipes = loadRecipes().filter(r => recipePassesHardFilters(r, profile));
   const warnings = [];
 
+  // Pre-compute cost overrides from cached Walmart prices. If we have prices
+  // for >=50% of a recipe's ingredients, use the cached cost instead of the
+  // stored est_cost. This lets the "price list" organically improve scoring
+  // as Walmart data accumulates.
+  const costOverrides = {};
+  for (const r of allRecipes) {
+    const est = productCache.estimateRecipeCost(r.id);
+    if (est.total > 0 && est.covered / est.total >= 0.5) {
+      costOverrides[r.id] = est.cost;
+    }
+  }
+
   const slots = buildSlots(profile);
   const usedCounts = {};
   let remainingBudget = profile.budget_weekly;
@@ -158,7 +172,8 @@ function generatePlan(profileId) {
       usedCounts,
       remainingBudget,
       slotsLeft: slots.length - i,
-      mealType: slot.meal_type
+      mealType: slot.meal_type,
+      costOverrides
     };
     const scored = pool.map(r => ({ recipe: r, result: scoreRecipe(r, ctx) }));
     scored.sort((a, b) => b.result.total - a.result.total);
@@ -234,7 +249,12 @@ function regenerateSlot(planId, day, mealType) {
   const usedCounts = {};
   for (const it of plan.items) if (it.recipe_id) usedCounts[it.recipe_id] = (usedCounts[it.recipe_id] || 0) + 1;
   const remaining = Math.max(1, profile.budget_weekly - plan.items.reduce((s, it) => s + (it.score ? it.score.factors.cost_estimate : 0), 0));
-  const scored = pool.map(r => ({ recipe: r, result: scoreRecipe(r, { profile, usedCounts, remainingBudget: remaining, slotsLeft: 1, mealType }) }));
+  const costOverrides = {};
+  for (const r of pool) {
+    const est = productCache.estimateRecipeCost(r.id);
+    if (est.total > 0 && est.covered / est.total >= 0.5) costOverrides[r.id] = est.cost;
+  }
+  const scored = pool.map(r => ({ recipe: r, result: scoreRecipe(r, { profile, usedCounts, remainingBudget: remaining, slotsLeft: 1, mealType, costOverrides }) }));
   scored.sort((a, b) => b.result.total - a.result.total);
   const pick = scored[0];
   db.prepare(`UPDATE weekly_plan_items SET recipe_id = ?, score_json = ? WHERE plan_id = ? AND day = ? AND meal_type = ?`)

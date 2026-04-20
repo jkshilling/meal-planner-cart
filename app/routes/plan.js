@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const shopping = require('../services/shopping');
 const matcher = require('../services/matcher');
+const productCache = require('../services/product_cache');
 const walmart = require('../../automation/walmart');
 
 const router = express.Router();
@@ -60,26 +61,73 @@ router.post('/plan/:id/match-walmart', async (req, res) => {
   const errors = [];
   try {
     for (const item of items) {
-      const query = [item.brand_preference, item.name].filter(Boolean).join(' ');
-      const { blocked, candidates } = await walmart.searchProducts(query, 5);
-      if (blocked) { errors.push(`Captcha/login wall while searching: ${item.name}`); break; }
+      // Check cache first — if we have a user-confirmed product for this
+      // ingredient, skip the live Walmart search entirely. Huge speedup and
+      // fewer captcha triggers over time.
+      const cached = productCache.bestProductFor(item.name);
+      let candidates;
+      if (cached && cached.user_confirmed) {
+        candidates = [{
+          name: cached.name,
+          url: cached.product_url,
+          price: cached.latest_price,
+          size: cached.size_text
+        }];
+      } else {
+        const query = [item.brand_preference, item.name].filter(Boolean).join(' ');
+        const { blocked, candidates: live } = await walmart.searchProducts(query, 5);
+        if (blocked) { errors.push(`Captcha/login wall while searching: ${item.name}`); break; }
+        candidates = live;
+        // Upsert every candidate into the product cache so price history
+        // and product knowledge accumulate regardless of which is picked.
+        for (const c of candidates) productCache.upsertProduct(c);
+      }
+
       const ranked = matcher.rankCandidates(item, candidates);
       matcher.saveMatch(item.id, ranked);
+
+      // Tentatively learn from the top result (non-confirmed). If the user
+      // later picks a different candidate, that becomes the confirmed one.
+      if (ranked[0]) {
+        const topProduct = db.prepare('SELECT id FROM walmart_products WHERE product_url = ?').get(ranked[0].url);
+        if (topProduct) productCache.learnMapping(item.name, topProduct.id, { confirmed: false });
+      }
     }
   } catch (e) {
     errors.push('Match error: ' + e.message);
   }
-  // Stash errors on a minimal run row for visibility (optional)
   res.redirect('/plan/' + id + '/shopping' + (errors.length ? '?err=' + encodeURIComponent(errors.join(' | ')) : ''));
 });
+
+// Look up the shopping item + its current match, upsert the product into the
+// cache, and create a confirmed ingredient→product mapping. This is the
+// "learning on approval" loop.
+function recordConfirmedMatch(itemId) {
+  const item = db.prepare('SELECT name FROM shopping_items WHERE id = ?').get(itemId);
+  const match = db.prepare('SELECT * FROM walmart_matches WHERE shopping_item_id = ?').get(itemId);
+  if (!item || !match || !match.product_url) return;
+  const productId = productCache.upsertProduct({
+    name: match.product_name,
+    url: match.product_url,
+    price: match.product_price,
+    size: match.product_size
+  });
+  if (productId) productCache.learnMapping(item.name, productId, { confirmed: true });
+}
 
 router.post('/plan/:id/shopping/approve-match', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const b = req.body;
   const itemId = parseInt(b.item_id, 10);
-  if (b.action === 'approve') matcher.setApproval(itemId, true);
-  else if (b.action === 'unapprove') matcher.setApproval(itemId, false);
-  else if (b.action === 'pick') matcher.approveMatch(itemId, parseInt(b.candidate_index, 10) || 0);
+  if (b.action === 'approve') {
+    matcher.setApproval(itemId, true);
+    recordConfirmedMatch(itemId);
+  } else if (b.action === 'unapprove') {
+    matcher.setApproval(itemId, false);
+  } else if (b.action === 'pick') {
+    matcher.approveMatch(itemId, parseInt(b.candidate_index, 10) || 0);
+    recordConfirmedMatch(itemId);
+  }
   res.redirect('/plan/' + id + '/shopping');
 });
 

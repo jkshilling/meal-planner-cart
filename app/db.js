@@ -126,6 +126,54 @@ CREATE TABLE IF NOT EXISTS automation_runs (
   log_json TEXT,
   FOREIGN KEY (plan_id) REFERENCES weekly_plans(id) ON DELETE CASCADE
 );
+
+-- Persistent cache of Walmart products we've encountered, one row per
+-- product URL. Grows over time as searches run. Nutrition fields are
+-- nullable and populated lazily (not yet scraped from product pages).
+CREATE TABLE IF NOT EXISTS walmart_products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  walmart_item_id TEXT UNIQUE,
+  product_url TEXT NOT NULL UNIQUE,
+  name TEXT NOT NULL,
+  brand TEXT,
+  size_text TEXT,
+  latest_price REAL,
+  latest_price_at TEXT,
+  image_url TEXT,
+  calories INTEGER,
+  protein REAL,
+  fiber REAL,
+  sugar REAL,
+  sodium REAL,
+  first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_walmart_products_name ON walmart_products(name);
+
+CREATE TABLE IF NOT EXISTS walmart_price_history (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id INTEGER NOT NULL,
+  price REAL NOT NULL,
+  seen_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (product_id) REFERENCES walmart_products(id) ON DELETE CASCADE
+);
+
+-- Learned ingredient → product mappings. user_confirmed=1 means the
+-- user approved this product as a match for this ingredient.
+-- Used to short-circuit matching for ingredients we've already figured out.
+CREATE TABLE IF NOT EXISTS ingredient_products (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ingredient_name TEXT NOT NULL,
+  product_id INTEGER NOT NULL,
+  user_confirmed INTEGER NOT NULL DEFAULT 0,
+  uses_count INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE (ingredient_name, product_id),
+  FOREIGN KEY (product_id) REFERENCES walmart_products(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_ingredient_products_name ON ingredient_products(ingredient_name);
 `;
 
 db.exec(SCHEMA);
