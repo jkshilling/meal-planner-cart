@@ -1,0 +1,40 @@
+<%- include('partials/header') %>
+<h1>Dashboard</h1>
+<div class="grid">
+  <section class="card">
+    <h2>Household</h2>
+    <p><strong><%= profile.name %></strong></p>
+    <p><%= profile.members.length %> member<%= profile.members.length === 1 ? '' : 's' %> · Budget $<%= profile.budget_weekly.toFixed(2) %>/wk · Mode: <%= profile.optimization_mode %></p>
+    <p class="muted">Meals: <%= profile.meal_types.join(', ') %></p>
+    <a class="btn" href="/settings">Edit settings</a>
+  </section>
+  <section class="card">
+    <h2>Recipes</h2>
+    <p><strong><%= recipeCount %></strong> active recipes</p>
+    <a class="btn" href="/recipes">Manage recipes</a>
+  </section>
+  <section class="card">
+    <h2>Current Plan</h2>
+    <% if (latestPlan) { %>
+      <p>Plan #<%= latestPlan.id %> · <%= latestPlan.status %> · starts <%= latestPlan.start_date %></p>
+      <p>Est. cost: $<%= latestPlan.total_cost.toFixed(2) %></p>
+      <a class="btn" href="/plan/<%= latestPlan.id %>">Open plan</a>
+    <% } else { %>
+      <p class="muted">No plan yet.</p>
+    <% } %>
+    <form action="/planner/generate" method="post" style="margin-top:8px">
+      <button class="btn primary" type="submit">Generate new plan</button>
+    </form>
+  </section>
+  <section class="card">
+    <h2>Last Automation</h2>
+    <% if (latestRun) { %>
+      <p>Run #<%= latestRun.id %> · <%= latestRun.status %></p>
+      <p><%= latestRun.success_count %> added, <%= latestRun.failure_count %> failed</p>
+      <a class="btn" href="/automation/<%= latestRun.id %>">View</a>
+    <% } else { %>
+      <p class="muted">Nothing run yet.</p>
+    <% } %>
+  </section>
+</div>
+<%- include('partials/footer') %>

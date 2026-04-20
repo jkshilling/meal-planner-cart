@@ -1,0 +1,85 @@
+<%- include('partials/header') %>
+<h1>Weekly Plan #<%= plan.id %></h1>
+<p class="muted">Starts <%= plan.start_date %> · Status: <strong><%= plan.status %></strong></p>
+
+<section class="card summary">
+  <div><strong>Est. cost:</strong> $<%= plan.total_cost.toFixed(2) %> / budget $<%= plan.profile.budget_weekly.toFixed(2) %></div>
+  <div><strong>Total prep:</strong> <%= plan.total_prep %> min</div>
+  <div><strong>Avg health score:</strong> <%= plan.health_score %></div>
+</section>
+
+<% if (plan.total_cost > plan.profile.budget_weekly) { %>
+  <div class="flash warn">Estimated cost exceeds your weekly budget. Consider swapping higher-cost slots.</div>
+<% } %>
+
+<% var byDay = {}; plan.items.forEach(function(it) { byDay[it.day] = byDay[it.day] || []; byDay[it.day].push(it); }); %>
+
+<section class="card">
+  <h2>Planner grid</h2>
+  <table class="grid-table plan-grid">
+    <thead>
+      <tr>
+        <th>Day</th>
+        <% plan.profile.meal_types.forEach(function(t) { %><th><%= t %></th><% }) %>
+      </tr>
+    </thead>
+    <tbody>
+      <% DAYS.forEach(function(d, idx) { %>
+        <tr>
+          <th><%= d %></th>
+          <% plan.profile.meal_types.forEach(function(t) { %>
+            <% var slot = (byDay[idx] || []).find(function(i) { return i.meal_type === t; }); %>
+            <td>
+              <% if (slot) { %>
+                <div class="slot">
+                  <div class="slot-name"><%= slot.recipe_name || '— none —' %>
+                    <% if (slot.locked) { %><span class="tag">locked</span><% } %>
+                  </div>
+                  <% if (slot.score) { %>
+                    <div class="slot-meta"><%= slot.prep_time %>m · $<%= slot.score.factors.cost_estimate %></div>
+                    <div class="slot-meta tiny">b:<%= slot.score.factors.budget %> p:<%= slot.score.factors.prep %> h:<%= slot.score.factors.health %> -r:<%= slot.score.factors.repetition_penalty %> +f:<%= slot.score.factors.favorite_boost %> +fit:<%= slot.score.factors.fit_boost %></div>
+                  <% } %>
+                  <% if (plan.status !== 'approved') { %>
+                  <form method="post" action="/planner/update-slot" class="slot-form">
+                    <input type="hidden" name="plan_id" value="<%= plan.id %>" />
+                    <input type="hidden" name="day" value="<%= idx %>" />
+                    <input type="hidden" name="meal_type" value="<%= t %>" />
+                    <select name="recipe_id">
+                      <option value="">— none —</option>
+                      <% allRecipes.filter(function(r) { return r.meal_type === t; }).forEach(function(r) { %>
+                        <option value="<%= r.id %>" <%= slot.recipe_id === r.id ? 'selected' : '' %>><%= r.name %></option>
+                      <% }) %>
+                    </select>
+                    <button class="link" type="submit">swap</button>
+                    <button class="link" type="submit" name="action" value="regenerate">regen</button>
+                    <button class="link" type="submit" name="action" value="lock"><%= slot.locked ? 'unlock' : 'lock' %></button>
+                  </form>
+                  <% } %>
+                </div>
+              <% } else { %>
+                <span class="muted">—</span>
+              <% } %>
+            </td>
+          <% }) %>
+        </tr>
+      <% }) %>
+    </tbody>
+  </table>
+</section>
+
+<% if (plan.status !== 'approved') { %>
+  <form method="post" action="/planner/approve" class="inline-form">
+    <input type="hidden" name="plan_id" value="<%= plan.id %>" />
+    <button class="btn primary" type="submit">Approve plan</button>
+  </form>
+  <form method="post" action="/planner/generate" class="inline-form">
+    <button class="btn" type="submit">Regenerate entire plan</button>
+  </form>
+<% } else { %>
+  <form method="post" action="/plan/<%= plan.id %>/build-shopping" class="inline-form">
+    <button class="btn primary" type="submit">Build shopping list →</button>
+  </form>
+  <a class="btn" href="/plan/<%= plan.id %>/shopping">View shopping list</a>
+<% } %>
+
+<%- include('partials/footer') %>

@@ -1,0 +1,122 @@
+* { box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color: #1a1a1a;
+  background: #f6f7f9;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.45;
+}
+main { max-width: 1100px; margin: 0 auto; padding: 24px 20px 80px; }
+h1 { margin: 0 0 16px; font-size: 24px; }
+h2 { margin: 0 0 12px; font-size: 18px; }
+a { color: #1f6feb; text-decoration: none; }
+a:hover { text-decoration: underline; }
+.topnav {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 20px; background: #111827; color: #fff;
+}
+.topnav .brand { font-weight: 700; letter-spacing: 0.02em; }
+.topnav nav a { color: #e5e7eb; margin-left: 16px; font-size: 14px; }
+.topnav nav a:hover { color: #fff; text-decoration: none; }
+
+.footer { text-align: center; padding: 24px; color: #6b7280; font-size: 12px; }
+
+.card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.grid.two { grid-template-columns: 1fr 1.2fr; }
+.grid.two > .card { margin-bottom: 0; }
+@media (max-width: 800px) { .grid, .grid.two { grid-template-columns: 1fr; } }
+
+.btn {
+  display: inline-block;
+  padding: 7px 14px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  font-size: 14px;
+  text-decoration: none;
+  margin-right: 6px;
+}
+.btn:hover { background: #f3f4f6; text-decoration: none; }
+.btn.primary { background: #111827; color: #fff; border-color: #111827; }
+.btn.primary:hover { background: #1f2937; }
+button.link {
+  background: none;
+  border: none;
+  color: #1f6feb;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 0 6px;
+}
+button.link:hover { text-decoration: underline; }
+
+label { display: block; margin-bottom: 10px; font-size: 14px; color: #374151; }
+label.inline { display: inline-flex; align-items: center; gap: 6px; margin-right: 14px; }
+input[type="text"], input[type="number"], input:not([type]), select, textarea {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font: inherit;
+  background: #fff;
+}
+textarea { min-height: 60px; }
+fieldset { border: 1px solid #e5e7eb; border-radius: 6px; padding: 10px 12px; margin: 0 0 12px; }
+legend { color: #374151; font-weight: 600; padding: 0 4px; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; }
+.row > label, .row > * { flex: 1 1 140px; }
+
+.stack > * { margin-bottom: 12px; }
+.inline-form { display: inline-block; margin-right: 8px; }
+
+.grid-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.grid-table th, .grid-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid #f1f2f4;
+  text-align: left;
+  vertical-align: top;
+}
+.grid-table th { color: #4b5563; font-weight: 600; background: #fafbfc; }
+.grid-table tr.archived { opacity: 0.5; }
+
+.plan-grid td { min-width: 160px; }
+.slot { display: flex; flex-direction: column; gap: 2px; }
+.slot-name { font-weight: 600; }
+.slot-meta { color: #6b7280; font-size: 12px; }
+.slot-meta.tiny { font-size: 11px; color: #9ca3af; }
+.slot-form { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+
+.summary { display: flex; gap: 28px; flex-wrap: wrap; }
+
+.muted { color: #6b7280; }
+.tiny { font-size: 12px; }
+
+.tag {
+  display: inline-block;
+  padding: 1px 6px;
+  font-size: 11px;
+  background: #e5e7eb;
+  border-radius: 4px;
+  margin-left: 4px;
+}
+.tag.confidence-high { background: #dcfce7; color: #166534; }
+.tag.confidence-medium { background: #fef3c7; color: #854d0e; }
+.tag.confidence-low { background: #fee2e2; color: #991b1b; }
+tr.confidence-low { background: #fff7f7; }
+tr.confidence-medium { background: #fffdf5; }
+
+tr.ok td { background: #f0fdf4; }
+tr.fail td { background: #fef2f2; }
+
+.flash { padding: 10px 14px; border-radius: 6px; margin-bottom: 14px; }
+.flash.success { background: #dcfce7; color: #166534; }
+.flash.warn { background: #fef3c7; color: #854d0e; }

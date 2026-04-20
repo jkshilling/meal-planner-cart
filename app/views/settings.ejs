@@ -1,0 +1,76 @@
+<%- include('partials/header') %>
+<h1>Settings</h1>
+<% if (saved) { %><div class="flash success">Saved.</div><% } %>
+<form method="post" action="/settings" class="stack">
+  <div class="card">
+    <h2>Household</h2>
+    <label>Name <input name="name" value="<%= profile.name %>" /></label>
+    <label>Weekly grocery budget ($) <input name="budget_weekly" type="number" step="0.01" min="0" value="<%= profile.budget_weekly %>" /></label>
+    <label>Max prep time per meal (min) <input name="max_prep_time" type="number" min="5" value="<%= profile.max_prep_time %>" /></label>
+
+    <fieldset>
+      <legend>Meal types planned</legend>
+      <% ['breakfast','lunch','snack','dinner'].forEach(function(t) { %>
+        <label class="inline"><input type="checkbox" name="meal_<%= t %>" <%= profile.meal_types.includes(t) ? 'checked' : '' %>/> <%= t %></label>
+      <% }) %>
+    </fieldset>
+
+    <fieldset>
+      <legend>Optimization mode (after budget)</legend>
+      <% ['lowest_cost','healthiest','least_prep_time'].forEach(function(m) { %>
+        <label class="inline"><input type="radio" name="optimization_mode" value="<%= m %>" <%= profile.optimization_mode === m ? 'checked' : '' %>/> <%= m.replace(/_/g,' ') %></label>
+      <% }) %>
+    </fieldset>
+
+    <label class="inline"><input type="checkbox" name="breakfast_simplicity" <%= profile.breakfast_simplicity ? 'checked' : '' %>/> Prefer simpler breakfasts</label>
+  </div>
+
+  <div class="card">
+    <h2>Household members</h2>
+    <p class="muted">Add one row per person. Lunch behavior controls whether that person's lunch is planned, is a school lunch (skipped in the plan), or is skipped entirely.</p>
+    <table class="grid-table">
+      <thead><tr><th>Name</th><th>Label</th><th>Lunch</th></tr></thead>
+      <tbody id="members">
+        <% (profile.members.length ? profile.members : [{name:'',label:'adult',lunch_behavior:'plan'}]).forEach(function(m) { %>
+          <tr>
+            <td><input name="member_name" value="<%= m.name %>" /></td>
+            <td><select name="member_label">
+              <option value="adult" <%= m.label==='adult' ? 'selected' : '' %>>adult</option>
+              <option value="child" <%= m.label==='child' ? 'selected' : '' %>>child</option>
+              <option value="teen" <%= m.label==='teen' ? 'selected' : '' %>>teen</option>
+            </select></td>
+            <td><select name="member_lunch">
+              <option value="plan" <%= m.lunch_behavior==='plan' ? 'selected' : '' %>>plan lunch</option>
+              <option value="school" <%= m.lunch_behavior==='school' ? 'selected' : '' %>>school lunch</option>
+              <option value="skip" <%= m.lunch_behavior==='skip' ? 'selected' : '' %>>skip lunch</option>
+            </select></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+    <button type="button" class="btn" onclick="addMember()">Add member</button>
+  </div>
+
+  <div class="card">
+    <h2>Preferences</h2>
+    <label>Dietary constraints (comma separated) <input name="dietary_constraints" value="<%= JSON.parse(profile.dietary_constraints_json).join(', ') %>" placeholder="vegetarian, gluten-free" /></label>
+    <label>Allergies <input name="allergies" value="<%= JSON.parse(profile.allergies_json).join(', ') %>" placeholder="peanut, shellfish" /></label>
+    <label>Disliked ingredients <input name="disliked_ingredients" value="<%= JSON.parse(profile.disliked_ingredients_json).join(', ') %>" /></label>
+    <label>Favorite meal keywords <input name="favorite_meals" value="<%= JSON.parse(profile.favorite_meals_json).join(', ') %>" placeholder="tacos, pasta" /></label>
+    <label>Preferred cuisines <input name="preferred_cuisines" value="<%= JSON.parse(profile.preferred_cuisines_json).join(', ') %>" placeholder="italian, mexican" /></label>
+  </div>
+
+  <button class="btn primary" type="submit">Save settings</button>
+</form>
+
+<script>
+function addMember() {
+  var tbody = document.getElementById('members');
+  var tr = document.createElement('tr');
+  tr.innerHTML = '<td><input name="member_name"/></td>' +
+    '<td><select name="member_label"><option value="adult">adult</option><option value="child">child</option><option value="teen">teen</option></select></td>' +
+    '<td><select name="member_lunch"><option value="plan">plan lunch</option><option value="school">school lunch</option><option value="skip">skip lunch</option></select></td>';
+  tbody.appendChild(tr);
+}
+</script>
+<%- include('partials/footer') %>

@@ -1,0 +1,19 @@
+{
+  "name": "meal-planner-cart",
+  "version": "0.1.0",
+  "description": "Weekly meal planner that builds a Walmart cart via browser automation.",
+  "main": "app/server.js",
+  "scripts": {
+    "start": "node app/server.js",
+    "dev": "node app/server.js",
+    "seed": "node data/seed.js",
+    "install-browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.3.0",
+    "dotenv": "^16.4.5",
+    "ejs": "^3.1.10",
+    "express": "^4.21.1",
+    "playwright": "^1.48.0"
+  }
+}
