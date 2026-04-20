@@ -22,9 +22,11 @@ APP_NAME="meal-planner-cart"
 APP_DIR="/srv/${APP_NAME}"
 APP_USER="www-data"
 APP_GROUP="www-data"
+APP_DOMAIN="meals.alaskatargeting.com"
 SYSTEMD_UNIT="/etc/systemd/system/${APP_NAME}.service"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${APP_NAME}.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${APP_NAME}.conf"
+CERT_PATH="/etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem"
 
 if [ "$(id -u)" -ne 0 ]; then
   echo "Must run as root." >&2
@@ -63,7 +65,21 @@ systemctl daemon-reload
 systemctl enable "${APP_NAME}"
 
 echo "=== [4/6] Installing nginx site (sibling apps untouched) ==="
-install -m 0644 "${APP_DIR}/deploy/nginx.conf" "${NGINX_AVAILABLE}"
+# TLS-aware install. Two files in deploy/:
+#   nginx.conf       — HTTP-only bootstrap, used before certbot runs
+#   nginx-tls.conf   — HTTPS-enabled, used once a Let's Encrypt cert exists
+# We pick based on whether the cert is present on disk. This prevents
+# deploy.sh from ever clobbering certbot's 443 server block on re-run.
+if [ -f "${CERT_PATH}" ]; then
+  echo "  TLS cert present — installing TLS-enabled nginx config"
+  install -m 0644 "${APP_DIR}/deploy/nginx-tls.conf" "${NGINX_AVAILABLE}"
+else
+  echo "  no TLS cert yet — installing bootstrap (HTTP-only) nginx config"
+  echo "  after this deploy completes, run:"
+  echo "    sudo certbot --nginx -d ${APP_DOMAIN}"
+  echo "  then re-run ${APP_NAME}/deploy/deploy.sh to swap to the TLS config."
+  install -m 0644 "${APP_DIR}/deploy/nginx.conf" "${NGINX_AVAILABLE}"
+fi
 # Create the enable symlink only if it doesn't already point at our file.
 if [ ! -L "${NGINX_ENABLED}" ] || [ "$(readlink "${NGINX_ENABLED}")" != "${NGINX_AVAILABLE}" ]; then
   ln -sfn "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"

@@ -174,6 +174,13 @@ sudo ./deploy/deploy.sh       # idempotent — re-runs safely
 
 `deploy.sh` touches only this app's systemd unit and nginx site. It never modifies `sites-enabled/default`, sibling apps' configs, `nginx.conf`, or global systemd settings. If nginx config validation fails, it bails before reloading so other apps stay up.
 
+**TLS config handling.** The deploy script is TLS-aware to avoid clobbering certbot's 443 server block on re-runs:
+
+- `deploy/nginx.conf` — HTTP-only, used on first deploy before certbot has issued a cert.
+- `deploy/nginx-tls.conf` — HTTPS-enabled, mirrors what certbot would write. Installed automatically on any deploy after `/etc/letsencrypt/live/meals.alaskatargeting.com/fullchain.pem` exists.
+
+Flow: first deploy installs the HTTP-only config → run `certbot --nginx` once → re-run `deploy.sh` and it swaps to the TLS config. From then on, every `deploy.sh` re-run keeps the TLS config intact.
+
 **Production env differences from local**
 
 | | Local (Mac) | Droplet |
