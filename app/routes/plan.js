@@ -7,6 +7,18 @@ const walmart = require('../../automation/walmart');
 
 const router = express.Router();
 
+// Guard routes that depend on headed Chromium. On headless hosts (the shared
+// droplet) Playwright cannot launch, so we 404 instead of hanging.
+function requireWalmart(req, res, next) {
+  if (process.env.WALMART_ENABLED !== 'true') {
+    return res.status(404).render('error', {
+      title: 'Not available',
+      message: 'Walmart automation is disabled in this deployment (no display available).'
+    });
+  }
+  next();
+}
+
 router.post('/plan/:id/build-shopping', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const plan = db.prepare('SELECT * FROM weekly_plans WHERE id = ?').get(id);
@@ -55,7 +67,7 @@ router.post('/plan/:id/shopping/item', (req, res) => {
   res.redirect('/plan/' + id + '/shopping');
 });
 
-router.post('/plan/:id/match-walmart', async (req, res) => {
+router.post('/plan/:id/match-walmart', requireWalmart, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const items = db.prepare('SELECT * FROM shopping_items WHERE plan_id = ? AND approved = 1').all(id);
   const errors = [];
@@ -131,7 +143,7 @@ router.post('/plan/:id/shopping/approve-match', (req, res) => {
   res.redirect('/plan/' + id + '/shopping');
 });
 
-router.post('/plan/:id/add-to-cart', async (req, res) => {
+router.post('/plan/:id/add-to-cart', requireWalmart, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const approved = db.prepare(`
     SELECT wm.*, si.name as item_name FROM walmart_matches wm
@@ -163,7 +175,7 @@ router.post('/plan/:id/add-to-cart', async (req, res) => {
   res.redirect('/automation/' + runId);
 });
 
-router.get('/automation/:id', (req, res) => {
+router.get('/automation/:id', requireWalmart, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const run = db.prepare('SELECT * FROM automation_runs WHERE id = ?').get(id);
   if (!run) return res.status(404).render('error', { title: 'Not Found', message: 'Run not found' });

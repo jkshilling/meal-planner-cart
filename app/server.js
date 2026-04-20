@@ -13,6 +13,12 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+// Expose feature flags to all views so templates can conditionally render.
+app.use((req, res, next) => {
+  res.locals.walmartEnabled = process.env.WALMART_ENABLED === 'true';
+  next();
+});
+
 app.use(require('./routes/index'));
 app.use(require('./routes/settings'));
 app.use(require('./routes/recipes'));
@@ -26,7 +32,10 @@ app.use((err, req, res, next) => {
   res.status(500).render('error', { title: 'Server error', message: err.message });
 });
 
+// Always bind to loopback. On a shared host, nginx is the only front door;
+// binding to 0.0.0.0 would expose the app directly and bypass TLS/auth.
 const PORT = parseInt(process.env.PORT, 10) || 3000;
-app.listen(PORT, () => {
-  console.log(`Meal Planner running at http://localhost:${PORT}`);
+const HOST = process.env.HOST || '127.0.0.1';
+app.listen(PORT, HOST, () => {
+  console.log(`Meal Planner running at http://${HOST}:${PORT}`);
 });

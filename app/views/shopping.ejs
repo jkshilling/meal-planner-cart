@@ -47,6 +47,7 @@
   </form>
 </section>
 
+<% if (walmartEnabled) { %>
 <section class="card">
   <h2>Walmart matches</h2>
   <form method="post" action="/plan/<%= plan.id %>/match-walmart" class="inline-form">
@@ -110,6 +111,11 @@
     <button class="btn primary" type="submit">Add approved items to Walmart cart →</button>
   </form>
   <p class="muted tiny">Automation opens Walmart, pauses for manual login if needed, then adds approved items. It will NOT check out.</p>
+<% } %>
+<% } else { %>
+<section class="card">
+  <p class="muted">Walmart automation is disabled on this deployment. Run the app on a machine with a browser to match and add to cart.</p>
+</section>
 <% } %>
 
 <%- include('partials/footer') %>

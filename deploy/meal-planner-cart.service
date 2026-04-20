@@ -1,0 +1,26 @@
+[Unit]
+Description=Meal Planner (Node/Express) — meals.alaskatargeting.com
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/meal-planner-cart
+EnvironmentFile=/srv/meal-planner-cart/.env
+ExecStart=/usr/bin/node /srv/meal-planner-cart/app/server.js
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Locked-down process surface. The app never needs root or broad filesystem
+# access; it reads .env, writes data/app.db, and talks to nginx over loopback.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/meal-planner-cart/data
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

@@ -4,7 +4,19 @@ const productCache = require('../services/product_cache');
 
 const router = express.Router();
 
-router.get('/products', (req, res) => {
+// Product cache only accumulates data when the Walmart automation runs.
+// On headless deploys the table will always be empty, so hide the page.
+function requireWalmart(req, res, next) {
+  if (process.env.WALMART_ENABLED !== 'true') {
+    return res.status(404).render('error', {
+      title: 'Not available',
+      message: 'Walmart automation is disabled in this deployment.'
+    });
+  }
+  next();
+}
+
+router.get('/products', requireWalmart, (req, res) => {
   const products = productCache.allProducts();
   const summary = productCache.mappingsSummary();
 
@@ -24,13 +36,13 @@ router.get('/products', (req, res) => {
   res.render('products', { title: 'Walmart product cache', products, summary });
 });
 
-router.post('/products/mapping/:mappingId/delete', (req, res) => {
+router.post('/products/mapping/:mappingId/delete', requireWalmart, (req, res) => {
   const id = parseInt(req.params.mappingId, 10);
   db.prepare('DELETE FROM ingredient_products WHERE id = ?').run(id);
   res.redirect('/products');
 });
 
-router.post('/products/:id/delete', (req, res) => {
+router.post('/products/:id/delete', requireWalmart, (req, res) => {
   const id = parseInt(req.params.id, 10);
   db.prepare('DELETE FROM walmart_products WHERE id = ?').run(id);
   res.redirect('/products');

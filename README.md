@@ -122,6 +122,78 @@ SESSION_SECRET=change-me-to-a-long-random-string
 WALMART_HEADLESS=false
 ```
 
+## Deploy to shared DigitalOcean droplet
+
+The app is built to coexist with other apps on a shared droplet (systemd units per app, specific nginx server_name per subdomain, loopback-only binds — no global writes).
+
+**Layout on the droplet**
+
+```
+/srv/meal-planner-cart/          # app code, git checkout or rsync target
+/srv/meal-planner-cart/.env      # production env, NEVER committed
+/srv/meal-planner-cart/data/     # SQLite db lives here, writable by www-data
+/etc/systemd/system/meal-planner-cart.service   # installed by deploy.sh
+/etc/nginx/sites-available/meal-planner-cart.conf → sites-enabled/…
+```
+
+**Port + subdomain**: app binds to `127.0.0.1:8002`. Nginx proxies `meals.alaskatargeting.com` → that port. Nothing else is exposed.
+
+**Deploy sequence (first time)**
+
+```bash
+# 1. On the droplet, pull the code
+sudo mkdir -p /srv/meal-planner-cart
+sudo chown $(whoami) /srv/meal-planner-cart
+git clone https://github.com/jkshilling/meal-planner-cart.git /srv/meal-planner-cart
+cd /srv/meal-planner-cart
+
+# 2. Copy and edit the env file (NODE_ENV=production, PORT=8002,
+#    WALMART_ENABLED=false, real SESSION_SECRET)
+cp .env.example .env
+${EDITOR:-vi} .env
+
+# 3. Seed the database once
+node data/seed.js
+
+# 4. Install systemd unit, nginx site, rebuild native deps, start
+sudo ./deploy/deploy.sh
+
+# 5. Point DNS: A record meals.alaskatargeting.com → droplet IP
+
+# 6. Obtain TLS cert (rewrites the nginx site file in place)
+sudo certbot --nginx -d meals.alaskatargeting.com
+```
+
+**Deploy sequence (subsequent)**
+
+```bash
+cd /srv/meal-planner-cart
+git pull
+sudo ./deploy/deploy.sh       # idempotent — re-runs safely
+```
+
+`deploy.sh` touches only this app's systemd unit and nginx site. It never modifies `sites-enabled/default`, sibling apps' configs, `nginx.conf`, or global systemd settings. If nginx config validation fails, it bails before reloading so other apps stay up.
+
+**Production env differences from local**
+
+| | Local (Mac) | Droplet |
+|---|---|---|
+| `NODE_ENV` | `development` | `production` |
+| `PORT` | anything | `8002` |
+| `HOST` | `127.0.0.1` | `127.0.0.1` |
+| `WALMART_ENABLED` | `true` | `false` |
+| `WALMART_HEADLESS` | `false` | irrelevant |
+
+On the droplet, the Walmart match / add-to-cart / Products pages are all disabled (they 404 and the buttons hide). Headed Chromium can't run without a display, so those features stay local-only. Run them on your Mac against the local DB.
+
+**Logs**
+
+```bash
+journalctl -u meal-planner-cart -f        # app
+tail -f /var/log/nginx/meal-planner-cart.access.log
+tail -f /var/log/nginx/meal-planner-cart.error.log
+```
+
 ## Current limitations (v1)
 
 - Rules-based planner only — no AI, embeddings, or external nutrition APIs.
