@@ -10,7 +10,7 @@
 
     <fieldset>
       <legend>Meal types planned</legend>
-      <% ['breakfast','lunch','snack','dinner'].forEach(function(t) { %>
+      <% ['breakfast','lunch','snack','dinner','side'].forEach(function(t) { %>
         <label class="inline"><input type="checkbox" name="meal_<%= t %>" <%= profile.meal_types.includes(t) ? 'checked' : '' %>/> <%= t %></label>
       <% }) %>
     </fieldset>

@@ -12,7 +12,7 @@
       <label style="flex:2 1 300px">Name <input name="name" required value="<%= editing ? editing.name : '' %>" /></label>
       <label>Meal type
         <select name="meal_type">
-          <% ['breakfast','lunch','snack','dinner'].forEach(function(t) { %>
+          <% ['breakfast','lunch','snack','dinner','side'].forEach(function(t) { %>
             <option value="<%= t %>" <%= editing && editing.meal_type === t ? 'selected' : '' %>><%= t %></option>
           <% }) %>
         </select>
@@ -69,6 +69,7 @@
     <button class="tab" data-meal="lunch" type="button">Lunch <span class="count"><%= counts.lunch %></span></button>
     <button class="tab" data-meal="snack" type="button">Snack <span class="count"><%= counts.snack %></span></button>
     <button class="tab" data-meal="dinner" type="button">Dinner <span class="count"><%= counts.dinner %></span></button>
+    <button class="tab" data-meal="side" type="button">Sides <span class="count"><%= counts.side %></span></button>
     <button class="tab" data-meal="favorite" type="button">★ Favorites <span class="count"><%= counts.favorite %></span></button>
   </div>
   <div class="control-row">

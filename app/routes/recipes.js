@@ -39,6 +39,7 @@ router.get('/recipes', (req, res) => {
     lunch: recipes.filter(r => r.meal_type === 'lunch').length,
     snack: recipes.filter(r => r.meal_type === 'snack').length,
     dinner: recipes.filter(r => r.meal_type === 'dinner').length,
+    side: recipes.filter(r => r.meal_type === 'side').length,
     favorite: recipes.filter(r => r.favorite).length
   };
   res.render('recipes', { title: 'Recipes', recipes, editing, counts });

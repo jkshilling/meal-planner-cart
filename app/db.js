@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS household_profiles (
   optimization_mode TEXT NOT NULL DEFAULT 'lowest_cost',
   breakfast_simplicity INTEGER NOT NULL DEFAULT 1,
   max_prep_time INTEGER NOT NULL DEFAULT 45,
-  meal_types_json TEXT NOT NULL DEFAULT '["breakfast","lunch","snack","dinner"]',
+  meal_types_json TEXT NOT NULL DEFAULT '["breakfast","lunch","snack","dinner","side"]',
   dietary_constraints_json TEXT NOT NULL DEFAULT '[]',
   allergies_json TEXT NOT NULL DEFAULT '[]',
   disliked_ingredients_json TEXT NOT NULL DEFAULT '[]',

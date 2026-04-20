@@ -198,6 +198,7 @@ tr.fail td { background: #fef2f2; }
 .meal-lunch { background: #dcfce7; color: #166534; }
 .meal-snack { background: #fce7f3; color: #9f1239; }
 .meal-dinner { background: #dbeafe; color: #1e40af; }
+.meal-side { background: #f3e8ff; color: #6b21a8; }
 .kid-tag { background: #e0e7ff; color: #4338ca; }
 .delete-link { color: #b91c1c; }
 .delete-link:hover { color: #991b1b; }

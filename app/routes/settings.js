@@ -22,7 +22,7 @@ router.post('/settings', (req, res) => {
     if (typeof v === 'string') return JSON.stringify(v.split(',').map(s => s.trim()).filter(Boolean));
     return '[]';
   };
-  const mealTypes = ['breakfast', 'lunch', 'snack', 'dinner'].filter(t => body['meal_' + t]);
+  const mealTypes = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].filter(t => body['meal_' + t]);
   const budget = parseFloat(body.budget_weekly);
   const warnings = [];
   if (!isFinite(budget) || budget <= 0) warnings.push('Budget must be positive');
