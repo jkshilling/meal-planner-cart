@@ -1,5 +1,6 @@
 const express = require('express');
 const db = require('../db');
+const mealdb = require('../services/mealdb');
 
 const router = express.Router();
 
@@ -43,6 +44,44 @@ router.get('/recipes', (req, res) => {
     favorite: recipes.filter(r => r.favorite).length
   };
   res.render('recipes', { title: 'Recipes', recipes, editing, counts });
+});
+
+// Search TheMealDB for recipes matching a query. Returns JSON so the page
+// can render results without a full reload.
+// NOTE: defined above the POST /recipes/:id handler so the literal path
+// match wins over the :id capture.
+router.get('/recipes/search-online', async (req, res) => {
+  const q = (req.query.q || '').trim();
+  if (!q) return res.json({ results: [] });
+  try {
+    const results = await mealdb.searchByName(q);
+    res.json({ results });
+  } catch (e) {
+    res.status(502).json({ error: e.message, results: [] });
+  }
+});
+
+router.post('/recipes/import-online', async (req, res) => {
+  const b = req.body;
+  const sourceId = (b.source_id || '').toString();
+  if (!sourceId) return res.redirect('/recipes');
+  try {
+    const recipe = await mealdb.lookupById(sourceId);
+    if (!recipe) return res.redirect('/recipes?import_err=not_found');
+    const mealType = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].includes(b.meal_type) ? b.meal_type : recipe.meal_type;
+    const info = db.prepare(`INSERT INTO recipes
+      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(recipe.name, mealType, recipe.cuisine, 0, recipe.prep_time, recipe.servings, recipe.est_cost,
+           null, null, null, null, null, 0, recipe.notes);
+    const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)');
+    for (const ing of recipe.ingredients) {
+      insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit, ing.brand_preference);
+    }
+    return res.redirect('/recipes?edit=' + info.lastInsertRowid);
+  } catch (e) {
+    return res.redirect('/recipes?import_err=' + encodeURIComponent(e.message));
+  }
 });
 
 router.post('/recipes', (req, res) => {
