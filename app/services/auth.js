@@ -55,6 +55,14 @@ function userCount() {
   return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 }
 
+// Read the logged-in user's id off the request, or null when not authed.
+// Used by routes during the WIP migration so they can scope queries when
+// a session exists and fall back to legacy "single household" behavior
+// when one doesn't. Commit 5 makes this non-null mandatory via requireAuth.
+function userIdOf(req) {
+  return (req.session && req.session.user && req.session.user.id) || null;
+}
+
 // Route middleware. Use on every protected route. The /login redirect
 // preserves the requested URL so a successful login bounces back to it.
 function requireAuth(req, res, next) {
@@ -78,5 +86,6 @@ module.exports = {
   createUser,
   userCount,
   requireAuth,
+  userIdOf,
   MIN_PASSWORD_LEN
 };

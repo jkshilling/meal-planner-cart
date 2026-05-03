@@ -18,10 +18,24 @@ function claimOrphanedHouseholds(userId, email) {
   // case-insensitive.
   const ownerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL || '').toLowerCase().trim();
   if (ownerEmail && email.toLowerCase().trim() !== ownerEmail) return 0;
-  const result = db.prepare(
-    'UPDATE household_profiles SET user_id = ? WHERE user_id IS NULL'
-  ).run(userId);
-  return result.changes;
+
+  // Claim the household + every owned-data table's orphaned rows. Any row
+  // with user_id IS NULL was created in pre-auth state and now belongs
+  // to whoever first claims it (subject to the gate above). Wrapped in a
+  // transaction so claims happen atomically — partial claims would be
+  // worse than none.
+  const claim = db.transaction(() => {
+    const profiles = db.prepare(
+      'UPDATE household_profiles SET user_id = ? WHERE user_id IS NULL'
+    ).run(userId).changes;
+    db.prepare('UPDATE recipes             SET user_id = ? WHERE user_id IS NULL').run(userId);
+    db.prepare('UPDATE weekly_plans        SET user_id = ? WHERE user_id IS NULL').run(userId);
+    db.prepare('UPDATE grocery_searches    SET user_id = ? WHERE user_id IS NULL').run(userId);
+    db.prepare('UPDATE ingredient_products SET user_id = ? WHERE user_id IS NULL').run(userId);
+    db.prepare('UPDATE automation_runs     SET user_id = ? WHERE user_id IS NULL').run(userId);
+    return profiles;
+  });
+  return claim();
 }
 
 function createHouseholdForUser(userId) {
@@ -43,4 +57,24 @@ function profileForUser(userId) {
   ).get(userId);
 }
 
-module.exports = { claimOrphanedHouseholds, createHouseholdForUser, profileForUser };
+// Resolve the active household for a request: scoped to the logged-in
+// user when there's a session, else the legacy "first active profile"
+// used pre-auth. Used by routes during the WIP migration; commit 5 will
+// drop the legacy fallback once requireAuth gates all protected routes.
+function profileForRequest(req) {
+  const uid = (req.session && req.session.user && req.session.user.id) || null;
+  if (uid) {
+    const owned = profileForUser(uid);
+    if (owned) return owned;
+  }
+  return db.prepare(
+    'SELECT * FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1'
+  ).get();
+}
+
+module.exports = {
+  claimOrphanedHouseholds,
+  createHouseholdForUser,
+  profileForUser,
+  profileForRequest
+};

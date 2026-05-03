@@ -2,15 +2,13 @@ const express = require('express');
 const db = require('../db');
 const { loadProfile } = require('../services/planner');
 const groceryToken = require('../services/grocery_token');
+const household = require('../services/household');
 
 const router = express.Router();
 
-function activeProfile() {
-  return db.prepare('SELECT * FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1').get();
-}
-
 router.get('/settings', (req, res) => {
-  const p = activeProfile();
+  const p = household.profileForRequest(req);
+  if (!p) return res.redirect('/login');
   const profile = loadProfile(p.id);
   res.render('settings', {
     title: 'Settings',
@@ -27,7 +25,8 @@ router.post('/settings/grocery-token/rotate', (req, res) => {
 });
 
 router.post('/settings', (req, res) => {
-  const p = activeProfile();
+  const p = household.profileForRequest(req);
+  if (!p) return res.redirect('/login');
   const body = req.body;
   const toJSONList = (v) => {
     if (Array.isArray(v)) return JSON.stringify(v.filter(Boolean));

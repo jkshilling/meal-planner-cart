@@ -10,6 +10,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireToken } = require('../services/grocery_token');
+const { userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
@@ -29,29 +30,39 @@ function extensionCors(req, res, next) {
 }
 
 router.get('/grocery', (req, res) => {
+  const uid = userIdOf(req);
+  // Searches and ingredient_products scope to the user; walmart_products
+  // and price history are intentionally global caches.
+  const userScopeSql = uid ? 'WHERE user_id = ?' : '';
+  const userScopeArgs = uid ? [uid] : [];
+
   const stats = {
-    searches: db.prepare('SELECT COUNT(*) AS n FROM grocery_searches').get().n,
+    searches: db.prepare(`SELECT COUNT(*) AS n FROM grocery_searches ${userScopeSql}`).get(...userScopeArgs).n,
     products: db.prepare('SELECT COUNT(*) AS n FROM walmart_products').get().n,
     pricePoints: db.prepare('SELECT COUNT(*) AS n FROM walmart_price_history').get().n,
-    confirmedMappings: db.prepare('SELECT COUNT(*) AS n FROM ingredient_products WHERE user_confirmed = 1').get().n
+    confirmedMappings: db.prepare(
+      `SELECT COUNT(*) AS n FROM ingredient_products WHERE user_confirmed = 1 ${uid ? 'AND user_id = ?' : ''}`
+    ).get(...userScopeArgs).n
   };
   const recent = db.prepare(`
     SELECT s.id, s.retailer, s.query, s.pick_source, s.result_count, s.searched_at,
            p.name AS picked_name, p.product_url AS picked_url, p.latest_price AS picked_price
       FROM grocery_searches s
  LEFT JOIN walmart_products p ON p.id = s.picked_product_id
+      ${uid ? 'WHERE s.user_id = ?' : ''}
   ORDER BY s.searched_at DESC
      LIMIT 100
-  `).all();
+  `).all(...userScopeArgs);
   // Top queries by frequency.
   const topQueries = db.prepare(`
     SELECT query, COUNT(*) AS n,
            SUM(CASE WHEN pick_source = 'override' THEN 1 ELSE 0 END) AS overrides
       FROM grocery_searches
+      ${userScopeSql}
   GROUP BY query
   ORDER BY n DESC
      LIMIT 25
-  `).all();
+  `).all(...userScopeArgs);
   res.render('grocery_index', { title: 'Grocery data', stats, recent, topQueries });
 });
 
@@ -115,13 +126,19 @@ router.get('/grocery/products/:id', (req, res) => {
      WHERE product_id = ?
   ORDER BY seen_at ASC
   `).all(id);
-  const searches = db.prepare(`
-    SELECT id, query, pick_source, searched_at
-      FROM grocery_searches
-     WHERE picked_product_id = ?
-  ORDER BY searched_at DESC
-     LIMIT 50
-  `).all(id);
+  const uid = userIdOf(req);
+  // "Searches that picked this product" — scope to current user when authed
+  // so one user's picks aren't visible to another. Product itself + price
+  // history stay global (they're per-product cache, not per-user data).
+  const searches = uid
+    ? db.prepare(`SELECT id, query, pick_source, searched_at
+                    FROM grocery_searches
+                   WHERE picked_product_id = ? AND user_id = ?
+                ORDER BY searched_at DESC LIMIT 50`).all(id, uid)
+    : db.prepare(`SELECT id, query, pick_source, searched_at
+                    FROM grocery_searches
+                   WHERE picked_product_id = ?
+                ORDER BY searched_at DESC LIMIT 50`).all(id);
   res.render('grocery_product', { title: product.name, product, history, searches });
 });
 

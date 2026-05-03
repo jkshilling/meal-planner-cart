@@ -3,9 +3,26 @@ const db = require('../db');
 const shopping = require('../services/shopping');
 const matcher = require('../services/matcher');
 const productCache = require('../services/product_cache');
+const household = require('../services/household');
+const { userIdOf } = require('../services/auth');
 const walmart = require('../../automation/walmart');
 
 const router = express.Router();
+
+// Plan ownership guard. When authed, the plan must belong to the request
+// user; pre-auth fallback accepts any plan (legacy behavior). Returns the
+// plan row on success, or sends a 404 and returns null on failure.
+function loadOwnedPlan(req, res, planId) {
+  const uid = userIdOf(req);
+  const plan = uid
+    ? db.prepare('SELECT * FROM weekly_plans WHERE id = ? AND user_id = ?').get(planId, uid)
+    : db.prepare('SELECT * FROM weekly_plans WHERE id = ?').get(planId);
+  if (!plan) {
+    res.status(404).render('error', { title: 'Not Found', message: 'Plan not found' });
+    return null;
+  }
+  return plan;
+}
 
 // Guard routes that depend on headed Chromium. On headless hosts (the shared
 // droplet) Playwright cannot launch, so we 404 instead of hanging.
@@ -23,19 +40,22 @@ function requireWalmart(req, res, next) {
 // most-recent plan's shopping list. If there's no plan yet, kick back to
 // /planner with a hint instead of 404'ing.
 router.get('/shopping', (req, res) => {
-  const profile = db.prepare('SELECT id FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1').get();
-  if (!profile) return res.redirect('/planner');
-  const latest = db.prepare(
-    'SELECT id FROM weekly_plans WHERE profile_id = ? ORDER BY id DESC LIMIT 1'
-  ).get(profile.id);
+  const uid = userIdOf(req);
+  const latest = uid
+    ? db.prepare('SELECT id FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid)
+    : (() => {
+        const p = household.profileForRequest(req);
+        if (!p) return null;
+        return db.prepare('SELECT id FROM weekly_plans WHERE profile_id = ? ORDER BY id DESC LIMIT 1').get(p.id);
+      })();
   if (!latest) return res.redirect('/planner');
   return res.redirect('/plan/' + latest.id + '/shopping');
 });
 
 router.post('/plan/:id/build-shopping', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const plan = db.prepare('SELECT * FROM weekly_plans WHERE id = ?').get(id);
-  if (!plan) return res.status(404).render('error', { title: 'Not Found', message: 'Plan not found' });
+  const plan = loadOwnedPlan(req, res, id);
+  if (!plan) return;
   if (plan.status !== 'approved') {
     return res.status(400).render('error', { title: 'Not approved', message: 'Plan must be approved before building a shopping list.' });
   }
@@ -49,8 +69,8 @@ router.post('/plan/:id/build-shopping', (req, res) => {
 
 router.get('/plan/:id/shopping', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const plan = db.prepare('SELECT * FROM weekly_plans WHERE id = ?').get(id);
-  if (!plan) return res.status(404).render('error', { title: 'Not Found', message: 'Plan not found' });
+  const plan = loadOwnedPlan(req, res, id);
+  if (!plan) return;
   const items = shopping.loadShoppingItems(id);
   const matches = shopping.loadMatches(id);
   res.render('shopping', { title: 'Shopping + Walmart', plan, items, matches });
@@ -82,6 +102,7 @@ router.post('/plan/:id/shopping/item', (req, res) => {
 
 router.post('/plan/:id/match-walmart', requireWalmart, async (req, res) => {
   const id = parseInt(req.params.id, 10);
+  if (!loadOwnedPlan(req, res, id)) return;
   const items = db.prepare('SELECT * FROM shopping_items WHERE plan_id = ? AND approved = 1').all(id);
   const errors = [];
   try {
@@ -142,6 +163,7 @@ function recordConfirmedMatch(itemId) {
 
 router.post('/plan/:id/shopping/approve-match', (req, res) => {
   const id = parseInt(req.params.id, 10);
+  if (!loadOwnedPlan(req, res, id)) return;
   const b = req.body;
   const itemId = parseInt(b.item_id, 10);
   if (b.action === 'approve') {
@@ -158,13 +180,17 @@ router.post('/plan/:id/shopping/approve-match', (req, res) => {
 
 router.post('/plan/:id/add-to-cart', requireWalmart, async (req, res) => {
   const id = parseInt(req.params.id, 10);
+  if (!loadOwnedPlan(req, res, id)) return;
+  const uid = userIdOf(req);
   const approved = db.prepare(`
     SELECT wm.*, si.name as item_name FROM walmart_matches wm
     JOIN shopping_items si ON wm.shopping_item_id = si.id
     WHERE si.plan_id = ? AND wm.approved = 1 AND wm.product_url IS NOT NULL
   `).all(id);
 
-  const runInfo = db.prepare(`INSERT INTO automation_runs (plan_id, status) VALUES (?, 'running')`).run(id);
+  const runInfo = db.prepare(
+    `INSERT INTO automation_runs (plan_id, user_id, status) VALUES (?, ?, 'running')`
+  ).run(id, uid);
   const runId = runInfo.lastInsertRowid;
   const log = [];
   let successCount = 0, failureCount = 0;
@@ -190,7 +216,11 @@ router.post('/plan/:id/add-to-cart', requireWalmart, async (req, res) => {
 
 router.get('/automation/:id', requireWalmart, (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const run = db.prepare('SELECT * FROM automation_runs WHERE id = ?').get(id);
+  const uid = userIdOf(req);
+  // Ownership guard: when authed, run must belong to this user.
+  const run = uid
+    ? db.prepare('SELECT * FROM automation_runs WHERE id = ? AND user_id = ?').get(id, uid)
+    : db.prepare('SELECT * FROM automation_runs WHERE id = ?').get(id);
   if (!run) return res.status(404).render('error', { title: 'Not Found', message: 'Run not found' });
   run.log = run.log_json ? JSON.parse(run.log_json) : [];
   res.render('automation', { title: 'Automation Result', run });

@@ -293,6 +293,13 @@ ensureColumn('walmart_products', 'category', 'TEXT');
 // User scoping for households. NULL means "orphaned, claimable on first
 // signup" — see services/household.claimOrphanedHouseholds().
 ensureColumn('household_profiles', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+// Owned-data tables. Same NULL-means-orphaned semantics; commit 5 will
+// flip these to NOT NULL once routes are gated.
+ensureColumn('recipes',             'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+ensureColumn('weekly_plans',        'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+ensureColumn('grocery_searches',    'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+ensureColumn('ingredient_products', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+ensureColumn('automation_runs',     'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 // The brand column was added speculatively for an extension feature that
 // never landed. Always null in practice. Dropped to clean up the schema.
 dropColumnIfExists('walmart_products', 'brand');

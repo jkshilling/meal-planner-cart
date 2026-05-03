@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
+const { userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
@@ -25,16 +26,23 @@ function parseIngredients(body) {
   return out;
 }
 
-function fetchRecipe(id) {
-  const r = db.prepare('SELECT * FROM recipes WHERE id = ?').get(id);
+// Fetch a recipe scoped to the request's user when authed; legacy fallback
+// returns any recipe by id (matches pre-auth behavior).
+function fetchRecipe(id, uid) {
+  const r = uid
+    ? db.prepare('SELECT * FROM recipes WHERE id = ? AND user_id = ?').get(id, uid)
+    : db.prepare('SELECT * FROM recipes WHERE id = ?').get(id);
   if (!r) return null;
   r.ingredients = db.prepare('SELECT * FROM recipe_ingredients WHERE recipe_id = ?').all(id);
   return r;
 }
 
 router.get('/recipes', (req, res) => {
-  const recipes = db.prepare('SELECT * FROM recipes ORDER BY meal_type, name').all();
-  const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10)) : null;
+  const uid = userIdOf(req);
+  const recipes = uid
+    ? db.prepare('SELECT * FROM recipes WHERE user_id = ? ORDER BY meal_type, name').all(uid)
+    : db.prepare('SELECT * FROM recipes ORDER BY meal_type, name').all();
+  const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10), uid) : null;
   const counts = {
     total: recipes.length,
     breakfast: recipes.filter(r => r.meal_type === 'breakfast').length,
@@ -102,10 +110,10 @@ router.post('/recipes/import-online', async (req, res) => {
     }
 
     const info = db.prepare(`INSERT INTO recipes
-      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(recipe.name, mealType, recipe.cuisine, 0, recipe.prep_time, recipe.servings, recipe.est_cost,
-           calories, protein, fiber, sugar, sodium, 0, recipe.notes);
+           calories, protein, fiber, sugar, sodium, 0, recipe.notes, userIdOf(req));
     const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)');
     for (const ing of recipe.ingredients) {
       insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit, ing.brand_preference);
@@ -123,8 +131,8 @@ router.post('/recipes', (req, res) => {
   if (!name) warnings.push('Name required');
   const mealType = (b.meal_type || 'dinner').trim();
   const info = db.prepare(`INSERT INTO recipes
-    (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
       name || 'Untitled',
       mealType,
@@ -139,7 +147,8 @@ router.post('/recipes', (req, res) => {
       b.sugar ? parseFloat(b.sugar) : null,
       b.sodium ? parseFloat(b.sodium) : null,
       b.favorite ? 1 : 0,
-      (b.notes || '').trim() || null
+      (b.notes || '').trim() || null,
+      userIdOf(req)
     );
   const rid = info.lastInsertRowid;
   const ings = parseIngredients(b);
@@ -150,7 +159,14 @@ router.post('/recipes', (req, res) => {
 
 router.post('/recipes/:id', (req, res) => {
   const id = parseInt(req.params.id, 10);
+  const uid = userIdOf(req);
   const b = req.body;
+  // Ownership guard: when authed, only update recipes owned by the request's
+  // user. Pre-auth fallback updates any recipe (legacy behavior).
+  if (uid) {
+    const own = db.prepare('SELECT id FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
+    if (!own) return res.status(404).render('error', { title: 'Not Found', message: 'Recipe not found.' });
+  }
   db.prepare(`UPDATE recipes SET
     name = ?, meal_type = ?, cuisine = ?, kid_friendly = ?, prep_time = ?, servings = ?, est_cost = ?,
     calories = ?, protein = ?, fiber = ?, sugar = ?, sodium = ?, favorite = ?, notes = ?
@@ -181,14 +197,23 @@ router.post('/recipes/:id', (req, res) => {
 
 router.post('/recipes/:id/favorite', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  const current = db.prepare('SELECT favorite FROM recipes WHERE id = ?').get(id);
+  const uid = userIdOf(req);
+  const current = uid
+    ? db.prepare('SELECT favorite FROM recipes WHERE id = ? AND user_id = ?').get(id, uid)
+    : db.prepare('SELECT favorite FROM recipes WHERE id = ?').get(id);
   if (current) db.prepare('UPDATE recipes SET favorite = ? WHERE id = ?').run(current.favorite ? 0 : 1, id);
   res.redirect(req.get('referer') || '/recipes');
 });
 
 router.post('/recipes/:id/delete', (req, res) => {
   const id = parseInt(req.params.id, 10);
-  db.prepare('DELETE FROM recipes WHERE id = ?').run(id);
+  const uid = userIdOf(req);
+  // Ownership guard before delete. Pre-auth fallback deletes by id only.
+  if (uid) {
+    db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
+  } else {
+    db.prepare('DELETE FROM recipes WHERE id = ?').run(id);
+  }
   res.redirect('/recipes');
 });
 
