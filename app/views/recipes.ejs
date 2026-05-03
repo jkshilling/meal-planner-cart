@@ -242,6 +242,28 @@ function runOnlineSearch() {
 document.addEventListener('DOMContentLoaded', function() {
   var input = document.getElementById('online-search');
   if (input) input.addEventListener('keydown', function(e) { if (e.key === 'Enter') runOnlineSearch(); });
+
+  // Auto-scale ingredient quantities when the user changes "Servings" in the
+  // recipe form. Stash the value at form-load so we can compute the ratio on
+  // each subsequent change (and re-stash after each scale, so chained edits
+  // compound correctly: 4 → 2 halves; 2 → 1 halves again).
+  var servingsInput = document.querySelector('.recipe-form-card input[name="servings"]');
+  if (servingsInput) {
+    var lastServings = parseFloat(servingsInput.value) || 1;
+    servingsInput.addEventListener('change', function() {
+      var newServings = parseFloat(servingsInput.value);
+      if (!isFinite(newServings) || newServings <= 0 || newServings === lastServings) return;
+      var ratio = newServings / lastServings;
+      document.querySelectorAll('#ings input[name="ing_qty"]').forEach(function(qInput) {
+        var q = parseFloat(qInput.value);
+        if (!isFinite(q)) return;
+        var scaled = q * ratio;
+        // Round to 2 decimal places. Trim trailing zeros so "1.00" shows as "1".
+        qInput.value = String(+scaled.toFixed(2));
+      });
+      lastServings = newServings;
+    });
+  }
 });
 function addIng() {
   var tbody = document.getElementById('ings');

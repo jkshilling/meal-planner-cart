@@ -24,6 +24,38 @@ function parseIngredients(body) {
   return out;
 }
 
+// On save, recompute per-serving nutrition from the ingredients via USDA so
+// users don't have to remember to click "Pre-fill from USDA" every time
+// they tweak a recipe. Returns either { calories, protein, fiber, sugar,
+// sodium } or null on any failure (no API key, network error, no
+// ingredients matched). Form values are the fallback when null is returned,
+// so a USDA outage never blocks a save.
+async function recomputeNutrition(ings, servings) {
+  if (!ings.length) return null;
+  try {
+    const r = await usda.recipeNutrition(ings, Math.max(1, servings || 1));
+    if (!r || !r.covered_ingredients) return null;
+    return {
+      calories: r.calories,
+      protein:  r.protein,
+      fiber:    r.fiber,
+      sugar:    r.sugar,
+      sodium:   r.sodium
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Pick computed value when USDA returned one; otherwise fall back to whatever
+// the form sent (parsed as the right type, or null if blank).
+function pickNutrition(computed, formValue, parser) {
+  if (computed != null) return computed;
+  if (formValue === undefined || formValue === '' || formValue === null) return null;
+  const v = parser(formValue);
+  return Number.isFinite(v) ? v : null;
+}
+
 // Fetch a recipe scoped to the request's user. Returns null on miss
 // (not-found OR not-owned both look the same — by design, no information leak).
 function fetchRecipe(id, uid) {
@@ -118,10 +150,15 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
   }
 });
 
-router.post('/recipes', requireAuth, (req, res) => {
+router.post('/recipes', requireAuth, async (req, res) => {
   const b = req.body;
   const name = (b.name || '').trim();
   const mealType = (b.meal_type || 'dinner').trim();
+  const servings = parseInt(b.servings, 10) || 2;
+  const ings = parseIngredients(b);
+  // Recompute nutrition from ingredients whenever there's something to
+  // compute against. Form values still ride along as fallback.
+  const nut = await recomputeNutrition(ings, servings);
   const info = db.prepare(`INSERT INTO recipes
     (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -131,30 +168,35 @@ router.post('/recipes', requireAuth, (req, res) => {
       (b.cuisine || '').trim() || null,
       b.kid_friendly ? 1 : 0,
       parseInt(b.prep_time, 10) || 20,
-      parseInt(b.servings, 10) || 2,
+      servings,
       parseFloat(b.est_cost) || 8,
-      b.calories ? parseInt(b.calories, 10) : null,
-      b.protein ? parseFloat(b.protein) : null,
-      b.fiber ? parseFloat(b.fiber) : null,
-      b.sugar ? parseFloat(b.sugar) : null,
-      b.sodium ? parseFloat(b.sodium) : null,
+      pickNutrition(nut && nut.calories, b.calories, v => parseInt(v, 10)),
+      pickNutrition(nut && nut.protein,  b.protein,  parseFloat),
+      pickNutrition(nut && nut.fiber,    b.fiber,    parseFloat),
+      pickNutrition(nut && nut.sugar,    b.sugar,    parseFloat),
+      pickNutrition(nut && nut.sodium,   b.sodium,   parseFloat),
       b.favorite ? 1 : 0,
       (b.notes || '').trim() || null,
       userIdOf(req)
     );
   const rid = info.lastInsertRowid;
-  const ings = parseIngredients(b);
   const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
   for (const i of ings) insertIng.run(rid, i.name, i.quantity, i.unit);
   res.redirect('/recipes');
 });
 
-router.post('/recipes/:id', requireAuth, (req, res) => {
+router.post('/recipes/:id', requireAuth, async (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
   const b = req.body;
   const own = db.prepare('SELECT id FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
   if (!own) return res.status(404).render('error', { title: 'Not Found', message: 'Recipe not found.' });
+  const servings = parseInt(b.servings, 10) || 2;
+  const ings = parseIngredients(b);
+  // Same auto-recompute on edit. Users had to remember to click "Pre-fill
+  // from USDA" after every ingredient/serving tweak before this; now save
+  // does it for them.
+  const nut = await recomputeNutrition(ings, servings);
   db.prepare(`UPDATE recipes SET
     name = ?, meal_type = ?, cuisine = ?, kid_friendly = ?, prep_time = ?, servings = ?, est_cost = ?,
     calories = ?, protein = ?, fiber = ?, sugar = ?, sodium = ?, favorite = ?, notes = ?
@@ -165,20 +207,19 @@ router.post('/recipes/:id', requireAuth, (req, res) => {
       (b.cuisine || '').trim() || null,
       b.kid_friendly ? 1 : 0,
       parseInt(b.prep_time, 10) || 20,
-      parseInt(b.servings, 10) || 2,
+      servings,
       parseFloat(b.est_cost) || 8,
-      b.calories ? parseInt(b.calories, 10) : null,
-      b.protein ? parseFloat(b.protein) : null,
-      b.fiber ? parseFloat(b.fiber) : null,
-      b.sugar ? parseFloat(b.sugar) : null,
-      b.sodium ? parseFloat(b.sodium) : null,
+      pickNutrition(nut && nut.calories, b.calories, v => parseInt(v, 10)),
+      pickNutrition(nut && nut.protein,  b.protein,  parseFloat),
+      pickNutrition(nut && nut.fiber,    b.fiber,    parseFloat),
+      pickNutrition(nut && nut.sugar,    b.sugar,    parseFloat),
+      pickNutrition(nut && nut.sodium,   b.sodium,   parseFloat),
       b.favorite ? 1 : 0,
       (b.notes || '').trim() || null,
       id,
       uid
     );
   db.prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
-  const ings = parseIngredients(b);
   const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
   for (const i of ings) insertIng.run(id, i.name, i.quantity, i.unit);
   res.redirect('/recipes');
