@@ -77,16 +77,6 @@ function loadShoppingItems(planId) {
   return db.prepare('SELECT * FROM shopping_items WHERE plan_id = ? ORDER BY name').all(planId);
 }
 
-function loadMatches(planId) {
-  return db.prepare(`
-    SELECT wm.*, si.name as item_name, si.quantity as item_quantity, si.unit as item_unit, si.brand_preference as item_brand
-    FROM walmart_matches wm
-    JOIN shopping_items si ON wm.shopping_item_id = si.id
-    WHERE si.plan_id = ?
-    ORDER BY si.name
-  `).all(planId);
-}
-
 function updateShoppingItem(id, fields) {
   const allowed = ['name', 'quantity', 'unit', 'brand_preference', 'notes', 'approved'];
   const set = [], vals = [];
@@ -109,7 +99,6 @@ function addManualItem(planId, fields) {
 module.exports = {
   buildShoppingList,
   loadShoppingItems,
-  loadMatches,
   updateShoppingItem,
   deleteShoppingItem,
   addManualItem

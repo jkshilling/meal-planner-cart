@@ -1,13 +1,12 @@
 {
   "name": "meal-planner-cart",
   "version": "0.1.0",
-  "description": "Weekly meal planner that builds a Walmart cart via browser automation.",
+  "description": "Weekly meal planner that builds a shopping list; the food-buyer Chrome extension drives the Walmart cart.",
   "main": "app/server.js",
   "scripts": {
     "start": "node app/server.js",
     "dev": "node app/server.js",
-    "seed": "node data/seed.js",
-    "install-browsers": "playwright install chromium"
+    "seed": "node data/seed.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -17,7 +16,6 @@
     "ejs": "^3.1.10",
     "express": "^4.21.1",
     "express-rate-limit": "^7.4.1",
-    "express-session": "^1.18.0",
-    "playwright": "^1.48.0"
+    "express-session": "^1.18.0"
   }
 }

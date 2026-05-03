@@ -3,7 +3,6 @@
 <p><a href="/plan/<%= plan.id %>">← back to plan</a></p>
 
 <section class="card">
-  <h2>Shopping list</h2>
   <% if (!items.length) { %>
     <p class="muted">Empty. Build a list from the approved plan first.</p>
   <% } else { %>
@@ -48,79 +47,12 @@
   </form>
 </section>
 
-<% if (walmartEnabled) { %>
 <section class="card">
-  <h2>Walmart matches</h2>
-  <form method="post" action="/plan/<%= plan.id %>/match-walmart" class="inline-form">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-    <button class="btn primary" type="submit">Run Walmart match</button>
-  </form>
-  <p class="muted tiny">Opens a real Chromium browser (headed by default). Walmart may require a captcha or login — if matching stops early, finish that in the browser and re-run.</p>
-
-  <% if (!matches.length) { %>
-    <p class="muted">No matches yet.</p>
-  <% } else { %>
-    <table class="grid-table matches">
-      <thead><tr><th>Item</th><th>Match</th><th>Price</th><th>Size</th><th>Confidence</th><th>Approved</th><th>Alternatives</th></tr></thead>
-      <tbody>
-        <% matches.forEach(function(m) { %>
-          <tr class="confidence-<%= m.confidence %>">
-            <td><%= m.item_name %></td>
-            <td>
-              <% if (m.product_url) { %><a href="<%= m.product_url %>" target="_blank"><%= m.product_name || '(no name)' %></a>
-              <% } else { %><em class="muted">no match</em><% } %>
-            </td>
-            <td><%= m.product_price ? ('$' + m.product_price.toFixed(2)) : '—' %></td>
-            <td><%= m.product_size || '—' %></td>
-            <td><span class="tag confidence-<%= m.confidence %>"><%= m.confidence %></span></td>
-            <td>
-              <form method="post" action="/plan/<%= plan.id %>/shopping/approve-match" style="display:inline">
-                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                <input type="hidden" name="item_id" value="<%= m.shopping_item_id %>" />
-                <% if (m.approved) { %>
-                  <input type="hidden" name="action" value="unapprove" />
-                  <button class="link" type="submit">✓ approved — click to undo</button>
-                <% } else { %>
-                  <input type="hidden" name="action" value="approve" />
-                  <button class="link" type="submit">approve</button>
-                <% } %>
-              </form>
-            </td>
-            <td>
-              <% var cands = m.candidates_json ? JSON.parse(m.candidates_json) : []; %>
-              <% if (cands.length > 1) { %>
-                <form method="post" action="/plan/<%= plan.id %>/shopping/approve-match">
-                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-                  <input type="hidden" name="item_id" value="<%= m.shopping_item_id %>" />
-                  <input type="hidden" name="action" value="pick" />
-                  <select name="candidate_index">
-                    <% cands.forEach(function(c, i) { %>
-                      <option value="<%= i %>"><%= c.name.substring(0, 40) %><%= c.price ? ' — $' + c.price : '' %></option>
-                    <% }) %>
-                  </select>
-                  <button class="link" type="submit">use this</button>
-                </form>
-              <% } else { %><span class="muted">—</span><% } %>
-            </td>
-          </tr>
-        <% }) %>
-      </tbody>
-    </table>
-  <% } %>
+  <p class="muted tiny" style="margin: 0;">
+    Use the <a href="https://github.com/jkshilling/food-buyer-extension" target="_blank" rel="noopener">food-buyer Chrome extension</a>
+    to add these items to your Walmart cart. The extension reads your favorites
+    from this app via your personal API token — set up in <a href="/settings#grocery-extension">Settings</a>.
+  </p>
 </section>
-
-<% var anyApproved = matches.some(function(m) { return m.approved; }); %>
-<% if (anyApproved) { %>
-  <form method="post" action="/plan/<%= plan.id %>/add-to-cart" class="inline-form">
-    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
-    <button class="btn primary" type="submit">Add approved items to Walmart cart →</button>
-  </form>
-  <p class="muted tiny">Automation opens Walmart, pauses for manual login if needed, then adds approved items. It will NOT check out.</p>
-<% } %>
-<% } else { %>
-<section class="card">
-  <p class="muted">Walmart automation is disabled on this deployment. Run the app on a machine with a browser to match and add to cart.</p>
-</section>
-<% } %>
 
 <%- include('partials/footer') %>

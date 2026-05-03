@@ -49,12 +49,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// Expose feature flags + display helpers + current user to all views.
-// Mounted before csrf.verify so a CSRF-rejection error page still has the
-// nav locals (walmartEnabled, currentUser) it needs to render.
+// Expose display helpers + current user to all views. Mounted before
+// csrf.verify so a CSRF-rejection error page still has the nav locals
+// (currentUser) it needs to render.
 const { formatDate, formatDateTime } = require('./services/format');
 app.use((req, res, next) => {
-  res.locals.walmartEnabled = process.env.WALMART_ENABLED === 'true';
   res.locals.formatDate = formatDate;
   res.locals.formatDateTime = formatDateTime;
   res.locals.currentUser = (req.session && req.session.user) ? req.session.user : null;
@@ -75,7 +74,6 @@ app.use(require('./routes/settings'));
 app.use(require('./routes/recipes'));
 app.use(require('./routes/planner'));
 app.use(require('./routes/plan'));
-app.use(require('./routes/products'));
 app.use(require('./routes/grocery_events'));
 app.use(require('./routes/grocery_dashboard'));
 

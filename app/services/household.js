@@ -32,7 +32,6 @@ function claimOrphanedHouseholds(userId, email) {
     db.prepare('UPDATE weekly_plans        SET user_id = ? WHERE user_id IS NULL').run(userId);
     db.prepare('UPDATE grocery_searches    SET user_id = ? WHERE user_id IS NULL').run(userId);
     db.prepare('UPDATE ingredient_products SET user_id = ? WHERE user_id IS NULL').run(userId);
-    db.prepare('UPDATE automation_runs     SET user_id = ? WHERE user_id IS NULL').run(userId);
 
     // Migrate the old global walmart_products.is_favorite column into
     // user_favorites for the claiming user. INSERT OR IGNORE handles the

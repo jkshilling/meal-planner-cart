@@ -76,17 +76,11 @@ router.get('/plan/:id', requireAuth, (req, res) => {
   const allRecipes = db.prepare(
     'SELECT id, name, meal_type FROM recipes WHERE user_id = ? ORDER BY meal_type, name'
   ).all(uid);
-  const shopping = db.prepare('SELECT * FROM shopping_items WHERE plan_id = ? ORDER BY name').all(id);
-  const matches = db.prepare(`SELECT wm.*, si.name as item_name FROM walmart_matches wm
-    JOIN shopping_items si ON wm.shopping_item_id = si.id
-    WHERE si.plan_id = ? ORDER BY si.name`).all(id);
   res.render('review', {
     title: `Plan ${id}`,
     plan,
     DAYS: planner.DAYS,
-    allRecipes,
-    shopping,
-    matches
+    allRecipes
   });
 });
 

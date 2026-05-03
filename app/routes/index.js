@@ -21,14 +21,12 @@ router.get('/', requireAuth, (req, res) => {
 
   const recipeCount = db.prepare('SELECT COUNT(*) AS c FROM recipes WHERE user_id = ?').get(uid).c;
   const latestPlan = db.prepare('SELECT * FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid);
-  const latestRun = db.prepare('SELECT * FROM automation_runs WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid);
 
   res.render('dashboard', {
     title: 'Dashboard',
     profile: fullProfile,
     recipeCount,
-    latestPlan,
-    latestRun
+    latestPlan
   });
 });
 

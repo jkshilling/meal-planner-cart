@@ -126,30 +126,10 @@ CREATE TABLE IF NOT EXISTS shopping_items (
   FOREIGN KEY (plan_id) REFERENCES weekly_plans(id) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS walmart_matches (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  shopping_item_id INTEGER NOT NULL,
-  product_name TEXT,
-  product_url TEXT,
-  product_price REAL,
-  product_size TEXT,
-  confidence TEXT NOT NULL DEFAULT 'low',
-  approved INTEGER NOT NULL DEFAULT 0,
-  candidates_json TEXT,
-  FOREIGN KEY (shopping_item_id) REFERENCES shopping_items(id) ON DELETE CASCADE
-);
-
-CREATE TABLE IF NOT EXISTS automation_runs (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  plan_id INTEGER NOT NULL,
-  status TEXT NOT NULL DEFAULT 'pending',
-  started_at TEXT NOT NULL DEFAULT (datetime('now')),
-  finished_at TEXT,
-  success_count INTEGER NOT NULL DEFAULT 0,
-  failure_count INTEGER NOT NULL DEFAULT 0,
-  log_json TEXT,
-  FOREIGN KEY (plan_id) REFERENCES weekly_plans(id) ON DELETE CASCADE
-);
+-- (walmart_matches and automation_runs were retired when the Playwright
+-- cart-automation path was removed — the food-buyer Chrome extension now
+-- handles Walmart matching/cart adding entirely client-side. The tables are
+-- dropped by the migration below if they exist on an older database.)
 
 -- Persistent cache of Walmart products we've encountered, one row per
 -- product URL. Grows over time as searches run. Nutrition fields are
@@ -318,16 +298,24 @@ ensureColumn('walmart_products', 'category', 'TEXT');
 // User scoping for households. NULL means "orphaned, claimable on first
 // signup" — see services/household.claimOrphanedHouseholds().
 ensureColumn('household_profiles', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
-// Owned-data tables. Same NULL-means-orphaned semantics; commit 5 will
-// flip these to NOT NULL once routes are gated.
+// Owned-data tables. user_id columns added retroactively to pre-auth
+// databases. Application-layer guarantees they're set (every write goes
+// through requireAuth → userIdOf); the column is left nullable to avoid
+// a fragile table-recreation ALTER on prod.
 ensureColumn('recipes',             'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 ensureColumn('weekly_plans',        'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 ensureColumn('grocery_searches',    'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 ensureColumn('ingredient_products', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
-ensureColumn('automation_runs',     'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
+
 // The brand column was added speculatively for an extension feature that
 // never landed. Always null in practice. Dropped to clean up the schema.
 dropColumnIfExists('walmart_products', 'brand');
+
+// Tables retired with the Playwright cart-automation path (the food-buyer
+// Chrome extension replaced server-side Playwright). Drop on existing
+// databases; new ones never create them in the first place.
+db.exec('DROP TABLE IF EXISTS walmart_matches');
+db.exec('DROP TABLE IF EXISTS automation_runs');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json

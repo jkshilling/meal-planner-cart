@@ -27,15 +27,5 @@
       <button class="btn primary" type="submit">Generate new plan</button>
     </form>
   </section>
-  <section class="card">
-    <h2>Last Automation</h2>
-    <% if (latestRun) { %>
-      <p>Run #<%= latestRun.id %> · <%= latestRun.status %></p>
-      <p><%= latestRun.success_count %> added, <%= latestRun.failure_count %> failed</p>
-      <a class="btn" href="/automation/<%= latestRun.id %>">View</a>
-    <% } else { %>
-      <p class="muted">Nothing run yet.</p>
-    <% } %>
-  </section>
 </div>
 <%- include('partials/footer') %>
