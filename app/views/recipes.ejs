@@ -204,6 +204,9 @@ function runOnlineSearch() {
       if (!results.length) { status.textContent = 'No matches from ' + actualSource + '.'; return; }
       status.textContent = results.length + ' result' + (results.length === 1 ? '' : 's') + ' from ' + actualSource + ':';
       out.innerHTML = results.map(function(r) {
+        // Spoonacular complexSearch doesn't return extendedIngredients (only
+        // /information does), so search results have ingredients=[]. Show
+        // count only when we actually have it (TheMealDB does).
         var ingCount = (r.ingredients || []).length;
         var meals = ['breakfast', 'lunch', 'snack', 'dinner', 'side'];
         var options = meals.map(function(m) {
@@ -220,14 +223,15 @@ function runOnlineSearch() {
           if (r.prep_time) bits.push(r.prep_time + ' min');
           preview = '<div class="online-result-preview tiny">' + escapeHtml(bits.join(' · ')) + '</div>';
         }
+        var metaBits = [];
+        if (r.cuisine) metaBits.push(escapeHtml(r.cuisine));
+        if (r.category) metaBits.push(escapeHtml(r.category));
+        if (ingCount > 0) metaBits.push(ingCount + ' ingredients');
         return '<div class="online-result">' +
           (r.image_url ? '<img src="' + escapeHtml(r.image_url) + '" alt="" />' : '<div class="online-result-noimg"></div>') +
           '<div class="online-result-body">' +
             '<div class="online-result-title">' + escapeHtml(r.name) + '</div>' +
-            '<div class="online-result-meta muted tiny">' +
-              (r.cuisine ? escapeHtml(r.cuisine) + ' · ' : '') +
-              (r.category ? escapeHtml(r.category) + ' · ' : '') +
-              ingCount + ' ingredients</div>' +
+            (metaBits.length ? '<div class="online-result-meta muted tiny">' + metaBits.join(' · ') + '</div>' : '') +
             preview +
             '<form method="post" action="/recipes/import-online" class="online-import-form">' +
               '<input type="hidden" name="source_id" value="' + escapeHtml(r.source_id) + '" />' +
