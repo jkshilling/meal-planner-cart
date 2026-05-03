@@ -11,6 +11,9 @@ data/app.db-wal
 # remove this line and commit the JSON once we've curated a final library.
 data/spoonacular-seed.json
 
+# Daily fetch cron log
+data/fetch.log
+
 # Environment
 .env
 

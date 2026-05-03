@@ -26,6 +26,7 @@ APP_DOMAIN="meals.alaskatargeting.com"
 SYSTEMD_UNIT="/etc/systemd/system/${APP_NAME}.service"
 NGINX_AVAILABLE="/etc/nginx/sites-available/${APP_NAME}.conf"
 NGINX_ENABLED="/etc/nginx/sites-enabled/${APP_NAME}.conf"
+CRON_FILE="/etc/cron.d/${APP_NAME}-fetch"
 CERT_PATH="/etc/letsencrypt/live/${APP_DOMAIN}/fullchain.pem"
 
 if [ "$(id -u)" -ne 0 ]; then
@@ -45,26 +46,26 @@ fi
 
 cd "${APP_DIR}"
 
-echo "=== [1/6] Installing Node production dependencies ==="
+echo "=== [1/7] Installing Node production dependencies ==="
 # Install as root, then chown the tree. npm ci runs postinstall which builds
 # better-sqlite3 for the droplet's architecture.
 npm ci --omit=dev
 # Rebuild native bindings explicitly in case the tree came from a Mac.
 npm rebuild better-sqlite3
 
-echo "=== [2/6] Ensuring ${APP_USER} owns the app tree ==="
+echo "=== [2/7] Ensuring ${APP_USER} owns the app tree ==="
 # data/ must be writable by the service user; everything else just readable.
 chown -R "${APP_USER}:${APP_GROUP}" "${APP_DIR}"
 chmod -R u=rwX,g=rX,o=rX "${APP_DIR}"
 # The SQLite file + WAL sidecars need to be writable.
 chmod -R u=rwX,g=rwX,o= "${APP_DIR}/data"
 
-echo "=== [3/6] Installing systemd unit at ${SYSTEMD_UNIT} ==="
+echo "=== [3/7] Installing systemd unit at ${SYSTEMD_UNIT} ==="
 install -m 0644 "${APP_DIR}/deploy/${APP_NAME}.service" "${SYSTEMD_UNIT}"
 systemctl daemon-reload
 systemctl enable "${APP_NAME}"
 
-echo "=== [4/6] Installing nginx site (sibling apps untouched) ==="
+echo "=== [4/7] Installing nginx site (sibling apps untouched) ==="
 # TLS-aware install. Two files in deploy/:
 #   nginx.conf       — HTTP-only bootstrap, used before certbot runs
 #   nginx-tls.conf   — HTTPS-enabled, used once a Let's Encrypt cert exists
@@ -85,12 +86,17 @@ if [ ! -L "${NGINX_ENABLED}" ] || [ "$(readlink "${NGINX_ENABLED}")" != "${NGINX
   ln -sfn "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
 fi
 
-echo "=== [5/6] Validating nginx config ==="
+echo "=== [5/7] Installing cron job for daily Spoonacular pull ==="
+# Namespaced to /etc/cron.d/${APP_NAME}-fetch — never touches /etc/crontab
+# or other apps' cron files. Mode must be 0644 owned by root for cron.d.
+install -o root -g root -m 0644 "${APP_DIR}/deploy/${APP_NAME}-fetch.cron" "${CRON_FILE}"
+
+echo "=== [6/7] Validating nginx config ==="
 # This checks the entire nginx config. If it fails, we bail before reloading
 # so sibling apps keep serving the old (good) config.
 nginx -t
 
-echo "=== [6/6] Restarting services ==="
+echo "=== [7/7] Restarting services ==="
 systemctl restart "${APP_NAME}"
 systemctl reload nginx
 
