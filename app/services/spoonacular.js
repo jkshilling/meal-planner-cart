@@ -1,0 +1,133 @@
+// Spoonacular recipe search + import.
+// API: https://spoonacular.com/food-api
+// Docs: https://spoonacular.com/food-api/docs
+//
+// Why this over TheMealDB: ~360k structured recipes vs ~300, plus per-recipe
+// nutrition AND pricePerServing baked into responses — so imported recipes
+// land with both nutrition and cost pre-filled, no USDA lookup needed.
+//
+// Cost model: free tier is 150 "points" per day. complexSearch with
+// addRecipeInformation+addRecipeNutrition costs ~5–8 points per response,
+// so a friend importing 10 recipes/day stays well under the cap.
+//
+// Key: process.env.SPOONACULAR_API_KEY. If missing, isEnabled() returns
+// false and the routes 404 — same flag-off-pattern we use for Walmart.
+
+const SP_BASE = 'https://api.spoonacular.com';
+
+function apiKey() {
+  return process.env.SPOONACULAR_API_KEY || '';
+}
+
+function isEnabled() {
+  return !!apiKey();
+}
+
+// Spoonacular's `dishTypes` array is the closest signal to our meal_type.
+// They use a freeform list ("breakfast", "side dish", "lunch", "main course",
+// "dessert", "snack", etc.). Map to our enum.
+function guessMealType(recipe) {
+  const types = (recipe.dishTypes || []).map(t => t.toLowerCase());
+  if (types.includes('breakfast') || types.includes('morning meal') || types.includes('brunch')) return 'breakfast';
+  if (types.includes('side dish') || types.includes('side')) return 'side';
+  if (types.includes('snack') || types.includes('appetizer') || types.includes('finger food') || types.includes('antipasto')) return 'snack';
+  if (types.includes('dessert')) return 'snack';  // map desserts → snack since we have no dessert slot
+  if (types.includes('lunch')) return 'lunch';
+  if (types.includes('main course') || types.includes('main dish') || types.includes('dinner')) return 'dinner';
+  return 'dinner';  // sensible default
+}
+
+function normalizeCuisine(recipe) {
+  const cuisines = recipe.cuisines || [];
+  return cuisines.length ? cuisines[0].toLowerCase() : null;
+}
+
+function extractIngredients(recipe) {
+  const ext = recipe.extendedIngredients || [];
+  return ext.map(i => ({
+    name: (i.nameClean || i.name || '').toLowerCase().trim(),
+    quantity: typeof i.amount === 'number' && i.amount > 0 ? +i.amount.toFixed(3) : 1,
+    unit: (i.unit || 'each').trim().toLowerCase() || 'each',
+    brand_preference: null
+  })).filter(i => i.name);
+}
+
+// Extract nutrition (per-serving values directly from Spoonacular).
+function extractNutrition(recipe) {
+  const nutrients = (recipe.nutrition && recipe.nutrition.nutrients) || [];
+  const find = name => {
+    const n = nutrients.find(x => (x.name || '').toLowerCase() === name.toLowerCase());
+    return n ? +Number(n.amount).toFixed(1) : null;
+  };
+  return {
+    calories: find('Calories') ? Math.round(find('Calories')) : null,
+    protein:  find('Protein'),
+    fiber:    find('Fiber'),
+    sugar:    find('Sugar'),
+    sodium:   find('Sodium')
+  };
+}
+
+function priceUSDFor(recipe) {
+  // pricePerServing is in cents per serving. Convert to dollars per recipe.
+  const cents = typeof recipe.pricePerServing === 'number' ? recipe.pricePerServing : null;
+  if (cents == null) return null;
+  const servings = recipe.servings || 1;
+  return +((cents * servings) / 100).toFixed(2);
+}
+
+function spoonacularToRecipe(r) {
+  if (!r) return null;
+  const ingredients = extractIngredients(r);
+  const nutrition = extractNutrition(r);
+  return {
+    source: 'spoonacular',
+    source_id: String(r.id),
+    name: r.title || 'Untitled',
+    meal_type: guessMealType(r),
+    cuisine: normalizeCuisine(r),
+    kid_friendly: 0,
+    prep_time: r.readyInMinutes || 30,
+    servings: r.servings || 4,
+    est_cost: priceUSDFor(r) ?? 10,
+    calories: nutrition.calories,
+    protein:  nutrition.protein,
+    fiber:    nutrition.fiber,
+    sugar:    nutrition.sugar,
+    sodium:   nutrition.sodium,
+    notes: (r.summary || '').replace(/<[^>]+>/g, '').slice(0, 2000),  // strip HTML
+    image_url: r.image || null,
+    category: (r.dishTypes || [])[0] || null,
+    ingredients
+  };
+}
+
+// complexSearch with addRecipeInformation/Nutrition gets us everything in one
+// call — full recipe data for each result, no second per-import lookup.
+async function searchByName(query, limit = 8) {
+  if (!isEnabled()) throw new Error('SPOONACULAR_API_KEY not set');
+  const url = `${SP_BASE}/recipes/complexSearch?query=${encodeURIComponent(query)}`
+    + `&number=${limit}`
+    + `&addRecipeInformation=true`
+    + `&addRecipeNutrition=true`
+    + `&instructionsRequired=true`
+    + `&apiKey=${encodeURIComponent(apiKey())}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`Spoonacular ${res.status}: ${text.slice(0, 200)}`);
+  }
+  const data = await res.json();
+  return (data.results || []).map(spoonacularToRecipe).filter(Boolean);
+}
+
+async function lookupById(id) {
+  if (!isEnabled()) throw new Error('SPOONACULAR_API_KEY not set');
+  const url = `${SP_BASE}/recipes/${encodeURIComponent(id)}/information?includeNutrition=true&apiKey=${encodeURIComponent(apiKey())}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Spoonacular ${res.status}`);
+  const data = await res.json();
+  return spoonacularToRecipe(data);
+}
+
+module.exports = { isEnabled, searchByName, lookupById, spoonacularToRecipe };

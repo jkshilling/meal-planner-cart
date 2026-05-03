@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const mealdb = require('../services/mealdb');
+const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
 
 const router = express.Router();
@@ -53,12 +54,23 @@ router.get('/recipes', (req, res) => {
 // match wins over the :id capture.
 router.get('/recipes/search-online', async (req, res) => {
   const q = (req.query.q || '').trim();
-  if (!q) return res.json({ results: [] });
+  // Default to Spoonacular when its key is present (~360k recipes, has
+  // built-in nutrition + cost). Fall back to TheMealDB (~300, free) when
+  // either the key is missing or the user explicitly picks it.
+  const requested = req.query.source;
+  const source = requested === 'mealdb' ? 'mealdb' :
+                 (requested === 'spoonacular' || spoonacular.isEnabled()) ? 'spoonacular' : 'mealdb';
+  if (!q) return res.json({ results: [], source });
   try {
-    const results = await mealdb.searchByName(q);
-    res.json({ results });
+    let results;
+    if (source === 'spoonacular' && spoonacular.isEnabled()) {
+      results = await spoonacular.searchByName(q);
+    } else {
+      results = await mealdb.searchByName(q);
+    }
+    res.json({ results, source });
   } catch (e) {
-    res.status(502).json({ error: e.message, results: [] });
+    res.status(502).json({ error: e.message, results: [], source });
   }
 });
 
@@ -80,27 +92,31 @@ router.post('/recipes/nutrition-preview', express.json(), async (req, res) => {
 router.post('/recipes/import-online', async (req, res) => {
   const b = req.body;
   const sourceId = (b.source_id || '').toString();
+  const source = b.source === 'spoonacular' ? 'spoonacular' : 'mealdb';
   if (!sourceId) return res.redirect('/recipes');
   try {
-    const recipe = await mealdb.lookupById(sourceId);
+    const recipe = source === 'spoonacular' && spoonacular.isEnabled()
+      ? await spoonacular.lookupById(sourceId)
+      : await mealdb.lookupById(sourceId);
     if (!recipe) return res.redirect('/recipes?import_err=not_found');
     const mealType = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].includes(b.meal_type) ? b.meal_type : recipe.meal_type;
 
-    // Best-effort nutrition lookup against USDA FoodData Central. If the
-    // service is rate-limited or unreachable the import still succeeds —
-    // nutrition fields just stay null and the user can fill them by hand.
-    const nutrition = await usda.recipeNutrition(recipe.ingredients, recipe.servings).catch(() => null);
+    // Spoonacular returns nutrition + price baked into the response, so most
+    // imported recipes already have those fields populated. TheMealDB returns
+    // neither — we fall back to USDA only when the source didn't already set
+    // any nutrition value.
+    let { calories = null, protein = null, fiber = null, sugar = null, sodium = null } = recipe;
+    const haveNutrition = [calories, protein, fiber, sugar, sodium].some(v => v != null);
+    if (!haveNutrition) {
+      const looked = await usda.recipeNutrition(recipe.ingredients, recipe.servings).catch(() => null);
+      if (looked) ({ calories, protein, fiber, sugar, sodium } = looked);
+    }
 
     const info = db.prepare(`INSERT INTO recipes
       (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(recipe.name, mealType, recipe.cuisine, 0, recipe.prep_time, recipe.servings, recipe.est_cost,
-           nutrition ? nutrition.calories : null,
-           nutrition ? nutrition.protein  : null,
-           nutrition ? nutrition.fiber    : null,
-           nutrition ? nutrition.sugar    : null,
-           nutrition ? nutrition.sodium   : null,
-           0, recipe.notes);
+           calories, protein, fiber, sugar, sodium, 0, recipe.notes);
     const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)');
     for (const ing of recipe.ingredients) {
       insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit, ing.brand_preference);

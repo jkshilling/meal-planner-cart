@@ -495,3 +495,11 @@ body.show-scoring .slot-meta.tiny { display: block; }
 .online-import-form { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
 .online-import-form select { flex: 1; padding: 5px 8px; font-size: 13px; }
 .online-import-form .btn { padding: 5px 12px; font-size: 13px; margin: 0; }
+.online-result-preview {
+  background: var(--cream-2);
+  color: var(--ink-soft);
+  padding: 3px 8px;
+  border-radius: 99px;
+  align-self: flex-start;
+  font-size: 11px;
+}
