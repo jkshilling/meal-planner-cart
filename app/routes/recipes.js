@@ -47,8 +47,8 @@ router.get('/recipes', (req, res) => {
   res.render('recipes', { title: 'Recipes', recipes, editing, counts });
 });
 
-// Search TheMealDB for recipes matching a query. Returns JSON so the page
-// can render results without a full reload.
+// Search Spoonacular for recipes matching a query. Returns JSON so the
+// page can render results without a full reload.
 // NOTE: defined above the POST /recipes/:id handler so the literal path
 // match wins over the :id capture.
 router.get('/recipes/search-online', async (req, res) => {

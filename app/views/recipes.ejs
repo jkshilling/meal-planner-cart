@@ -197,8 +197,8 @@ function runOnlineSearch() {
       status.textContent = results.length + ' result' + (results.length === 1 ? '' : 's') + ':';
       out.innerHTML = results.map(function(r) {
         // Spoonacular complexSearch doesn't return extendedIngredients (only
-        // /information does), so search results have ingredients=[]. Show
-        // count only when we actually have it (TheMealDB does).
+        // /information does), so search results land with ingredients=[].
+        // Show count only when it's a real value.
         var ingCount = (r.ingredients || []).length;
         var meals = ['breakfast', 'lunch', 'snack', 'dinner', 'side'];
         var options = meals.map(function(m) {
