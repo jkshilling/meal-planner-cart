@@ -1,0 +1,22 @@
+<%- include('partials/header') %>
+<div style="max-width: 420px; margin: 40px auto;">
+  <h1>Sign in</h1>
+  <% if (flash) { %><div class="flash <%= flash.type %>"><%= flash.message %></div><% } %>
+  <section class="card">
+    <form method="post" action="/login" class="stack">
+      <% if (next) { %><input type="hidden" name="next" value="<%= next %>" /><% } %>
+      <label>Email
+        <input type="email" name="email" required autofocus
+               value="<%= email %>" autocomplete="email" />
+      </label>
+      <label>Password
+        <input type="password" name="password" required autocomplete="current-password" />
+      </label>
+      <button class="btn primary" type="submit" style="width: 100%;">Sign in</button>
+    </form>
+    <p class="muted tiny" style="margin: 14px 0 0; text-align: center;">
+      Need an account? <a href="/signup<%= next ? '?next=' + encodeURIComponent(next) : '' %>">Create one</a>
+    </p>
+  </section>
+</div>
+<%- include('partials/footer') %>

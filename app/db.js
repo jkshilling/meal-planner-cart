@@ -8,6 +8,15 @@ db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 const SCHEMA = `
+-- Per-user authentication. Email is the login identity; password_hash is
+-- bcrypt-hashed. Future: password resets via email, OAuth providers, etc.
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS household_profiles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL DEFAULT 'Household',

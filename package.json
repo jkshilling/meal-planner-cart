@@ -10,10 +10,13 @@
     "install-browsers": "playwright install chromium"
   },
   "dependencies": {
+    "bcryptjs": "^2.4.3",
     "better-sqlite3": "^11.3.0",
+    "better-sqlite3-session-store": "^0.1.0",
     "dotenv": "^16.4.5",
     "ejs": "^3.1.10",
     "express": "^4.21.1",
+    "express-session": "^1.18.0",
     "playwright": "^1.48.0"
   }
 }

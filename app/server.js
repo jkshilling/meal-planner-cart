@@ -1,11 +1,16 @@
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const express = require('express');
 const path = require('path');
+const session = require('express-session');
+const SqliteStore = require('better-sqlite3-session-store')(session);
 
 // Loads db.js which initializes the schema on require.
-require('./db');
+const db = require('./db');
 
 const app = express();
+
+// Trust the nginx proxy in front of us so secure-cookie + ip detection work.
+app.set('trust proxy', 1);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -13,15 +18,48 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Expose feature flags + display helpers to all views.
+// Sessions: SQLite-backed so they survive systemd restarts. Same DB file as
+// everything else — the store creates its own `sessions` table on first run.
+app.use(session({
+  store: new SqliteStore({
+    client: db,
+    expired: { clear: true, intervalMs: 15 * 60 * 1000 }  // sweep expired every 15m
+  }),
+  name: 'mp.sid',
+  secret: process.env.SESSION_SECRET || 'dev-only-replace-in-env',
+  resave: false,
+  saveUninitialized: false,
+  rolling: true,  // refresh expiry on every request so active sessions don't expire mid-use
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000,  // 30 days
+    secure: process.env.NODE_ENV === 'production'
+  }
+}));
+
+// Flash messages: anything written to req.session.flash gets surfaced to the
+// next-rendered view as `flash`, then cleared.
+app.use((req, res, next) => {
+  res.locals.flash = null;
+  if (req.session && req.session.flash) {
+    res.locals.flash = req.session.flash;
+    delete req.session.flash;
+  }
+  next();
+});
+
+// Expose feature flags + display helpers + current user to all views.
 const { formatDate, formatDateTime } = require('./services/format');
 app.use((req, res, next) => {
   res.locals.walmartEnabled = process.env.WALMART_ENABLED === 'true';
   res.locals.formatDate = formatDate;
   res.locals.formatDateTime = formatDateTime;
+  res.locals.currentUser = (req.session && req.session.user) ? req.session.user : null;
   next();
 });
 
+app.use(require('./routes/auth'));
 app.use(require('./routes/index'));
 app.use(require('./routes/settings'));
 app.use(require('./routes/recipes'));

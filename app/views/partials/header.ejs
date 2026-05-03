@@ -43,6 +43,15 @@
       <% if (walmartEnabled) { %><a href="/products">Products</a><% } %>
       <a href="/grocery">Grocery</a>
       <a href="/grocery/products">Catalog</a>
+      <% if (currentUser) { %>
+        <span class="muted tiny" style="margin-left: 18px;"><%= currentUser.email %></span>
+        <form method="post" action="/logout" style="display:inline; margin-left: 6px;">
+          <button class="link" type="submit" style="font-size: 14px;">Sign out</button>
+        </form>
+      <% } else { %>
+        <a href="/login" style="margin-left: 18px;">Sign in</a>
+        <a href="/signup">Sign up</a>
+      <% } %>
     </nav>
   </header>
   <main>
