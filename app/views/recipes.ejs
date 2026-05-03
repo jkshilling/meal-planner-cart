@@ -24,6 +24,7 @@
 <section class="card recipe-form-card" id="recipe-form-card" style="<%= editing ? '' : 'display:none' %>">
   <h2><%= editing ? 'Edit recipe' : 'New recipe' %></h2>
   <form method="post" action="<%= editing ? '/recipes/' + editing.id : '/recipes' %>" class="stack">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <div class="row">
       <label style="flex:2 1 300px">Name <input name="name" required value="<%= editing ? editing.name : '' %>" /></label>
       <label>Meal type
@@ -140,6 +141,7 @@
         >
           <td class="fav-cell">
             <form method="post" action="/recipes/<%= r.id %>/favorite" style="display:inline">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="fav-btn <%= r.favorite ? 'on' : '' %>" title="toggle favorite" type="submit"><%= r.favorite ? '★' : '☆' %></button>
             </form>
           </td>
@@ -156,6 +158,7 @@
           <td class="actions">
             <a class="link" href="/recipes?edit=<%= r.id %>">edit</a>
             <form method="post" action="/recipes/<%= r.id %>/delete" class="delete-form" data-name="<%= r.name %>" style="display:inline">
+              <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="link delete-link" type="submit">delete</button>
             </form>
           </td>
@@ -226,6 +229,7 @@ function runOnlineSearch() {
             (metaBits.length ? '<div class="online-result-meta muted tiny">' + metaBits.join(' · ') + '</div>' : '') +
             preview +
             '<form method="post" action="/recipes/import-online" class="online-import-form">' +
+              '<input type="hidden" name="_csrf" value="' + window.__CSRF + '" />' +
               '<input type="hidden" name="source_id" value="' + escapeHtml(r.source_id) + '" />' +
               '<select name="meal_type">' + options + '</select>' +
               '<button class="btn primary" type="submit">Import</button>' +
@@ -268,7 +272,7 @@ function prefillNutrition() {
   status.textContent = 'looking up…';
   fetch('/recipes/nutrition-preview', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.__CSRF },
     body: JSON.stringify({ ingredients: ingredients, servings: servings })
   })
   .then(function(r) { return r.json(); })

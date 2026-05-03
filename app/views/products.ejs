@@ -35,6 +35,7 @@
                   <span class="tag <%= m.user_confirmed ? 'confirmed-mapping' : '' %>">
                     <%= m.ingredient_name %><% if (m.user_confirmed) { %> ✓<% } %>
                     <form method="post" action="/products/mapping/<%= m.id || '' %>/delete" style="display:inline">
+                      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                     </form>
                   </span>
                 <% }) %>
@@ -42,6 +43,7 @@
             </td>
             <td>
               <form method="post" action="/products/<%= p.id %>/delete" onsubmit="return confirm('Remove this product from the cache?')" style="display:inline">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button class="link delete-link" type="submit">remove</button>
               </form>
             </td>

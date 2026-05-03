@@ -8,6 +8,12 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/styles.css" />
+  <script>
+    // Exposed for JS that builds <form> markup dynamically (e.g. recipe
+    // online-search results). Server-rendered forms read csrfToken directly
+    // via EJS — no need to read this global.
+    window.__CSRF = <%- JSON.stringify(csrfToken) %>;
+  </script>
 </head>
 <body>
   <header class="topnav">
@@ -46,6 +52,7 @@
       <% if (currentUser) { %>
         <span class="muted tiny" style="margin-left: 18px;"><%= currentUser.email %></span>
         <form method="post" action="/logout" style="display:inline; margin-left: 6px;">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
           <button class="link" type="submit" style="font-size: 14px;">Sign out</button>
         </form>
       <% } else { %>

@@ -88,24 +88,8 @@ function profileForUser(userId) {
   ).get(userId);
 }
 
-// Resolve the active household for a request: scoped to the logged-in
-// user when there's a session, else the legacy "first active profile"
-// used pre-auth. Used by routes during the WIP migration; commit 5 will
-// drop the legacy fallback once requireAuth gates all protected routes.
-function profileForRequest(req) {
-  const uid = (req.session && req.session.user && req.session.user.id) || null;
-  if (uid) {
-    const owned = profileForUser(uid);
-    if (owned) return owned;
-  }
-  return db.prepare(
-    'SELECT * FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1'
-  ).get();
-}
-
 module.exports = {
   claimOrphanedHouseholds,
   createHouseholdForUser,
-  profileForUser,
-  profileForRequest
+  profileForUser
 };

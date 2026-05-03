@@ -4,6 +4,7 @@
   <% if (flash) { %><div class="flash <%= flash.type %>"><%= flash.message %></div><% } %>
   <section class="card">
     <form method="post" action="/signup" class="stack">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <label>Email
         <input type="email" name="email" required autofocus
                value="<%= email %>" autocomplete="email" />

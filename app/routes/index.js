@@ -2,27 +2,26 @@ const express = require('express');
 const db = require('../db');
 const { loadProfile } = require('../services/planner');
 const household = require('../services/household');
-const { userIdOf } = require('../services/auth');
+const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
-router.get('/', (req, res) => {
-  const profile = household.profileForRequest(req);
-  if (!profile) return res.redirect('/login');
+router.get('/', requireAuth, (req, res) => {
+  const profile = household.profileForUser(userIdOf(req));
+  if (!profile) {
+    // Should never happen — signup creates a profile. If it does, the user's
+    // data is broken and they need to start over.
+    return res.status(500).render('error', {
+      title: 'No household',
+      message: 'No household found for your account. Contact support.'
+    });
+  }
   const fullProfile = loadProfile(profile.id);
   const uid = userIdOf(req);
 
-  // Counts and "latest" lookups are scoped to the logged-in user when there
-  // is one. Pre-auth fallback returns the global counts.
-  const recipeCount = uid
-    ? db.prepare('SELECT COUNT(*) AS c FROM recipes WHERE user_id = ?').get(uid).c
-    : db.prepare('SELECT COUNT(*) AS c FROM recipes').get().c;
-  const latestPlan = uid
-    ? db.prepare('SELECT * FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid)
-    : db.prepare('SELECT * FROM weekly_plans WHERE profile_id = ? ORDER BY id DESC LIMIT 1').get(profile.id);
-  const latestRun = uid
-    ? db.prepare('SELECT * FROM automation_runs WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid)
-    : db.prepare('SELECT * FROM automation_runs ORDER BY id DESC LIMIT 1').get();
+  const recipeCount = db.prepare('SELECT COUNT(*) AS c FROM recipes WHERE user_id = ?').get(uid).c;
+  const latestPlan = db.prepare('SELECT * FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid);
+  const latestRun = db.prepare('SELECT * FROM automation_runs WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid);
 
   res.render('dashboard', {
     title: 'Dashboard',

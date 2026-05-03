@@ -47,6 +47,7 @@
                   <% } %>
                   <% if (plan.status !== 'approved') { %>
                   <form method="post" action="/planner/update-slot" class="slot-form">
+                    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                     <input type="hidden" name="plan_id" value="<%= plan.id %>" />
                     <input type="hidden" name="day" value="<%= idx %>" />
                     <input type="hidden" name="meal_type" value="<%= t %>" />
@@ -73,6 +74,7 @@
                       <% } %>
                       <% if (plan.status !== 'approved') { %>
                       <form method="post" action="/planner/update-slot" class="slot-form">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                         <input type="hidden" name="plan_id" value="<%= plan.id %>" />
                         <input type="hidden" name="day" value="<%= idx %>" />
                         <input type="hidden" name="meal_type" value="<%= t %>" />
@@ -119,14 +121,17 @@
 
 <% if (plan.status !== 'approved') { %>
   <form method="post" action="/planner/approve" class="inline-form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <input type="hidden" name="plan_id" value="<%= plan.id %>" />
     <button class="btn primary" type="submit">Approve plan</button>
   </form>
   <form method="post" action="/planner/generate" class="inline-form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <button class="btn" type="submit">Regenerate entire plan</button>
   </form>
 <% } else { %>
   <form method="post" action="/plan/<%= plan.id %>/build-shopping" class="inline-form">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <button class="btn primary" type="submit">Build shopping list →</button>
   </form>
   <a class="btn" href="/plan/<%= plan.id %>/shopping">View shopping list</a>

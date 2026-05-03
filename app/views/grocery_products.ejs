@@ -36,6 +36,7 @@
               data-favorite="<%= p.is_favorite ? '1' : '0' %>">
             <td class="fav-cell">
               <form method="post" action="/grocery/products/<%= p.id %>/favorite" style="display:inline">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button class="fav-btn <%= p.is_favorite ? 'on' : '' %>" type="submit"
                         title="<%= p.is_favorite ? 'unfavorite' : 'favorite — extension will prefer this product' %>">
                   <%= p.is_favorite ? '★' : '☆' %>

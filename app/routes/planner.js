@@ -2,25 +2,23 @@ const express = require('express');
 const db = require('../db');
 const planner = require('../services/planner');
 const household = require('../services/household');
-const { userIdOf } = require('../services/auth');
+const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
-router.get('/planner', (req, res) => {
-  const p = household.profileForRequest(req);
-  if (!p) return res.redirect('/login');
+router.get('/planner', requireAuth, (req, res) => {
   const uid = userIdOf(req);
-  const latest = uid
-    ? db.prepare('SELECT * FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid)
-    : db.prepare('SELECT * FROM weekly_plans WHERE profile_id = ? ORDER BY id DESC LIMIT 1').get(p.id);
+  const p = household.profileForUser(uid);
+  if (!p) return res.status(500).render('error', { title: 'No household', message: 'No household found.' });
+  const latest = db.prepare('SELECT * FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid);
   if (latest) return res.redirect('/plan/' + latest.id);
   res.render('planner_empty', { title: 'Weekly Planner' });
 });
 
-router.post('/planner/generate', (req, res) => {
-  const p = household.profileForRequest(req);
-  if (!p) return res.redirect('/login');
+router.post('/planner/generate', requireAuth, (req, res) => {
   const uid = userIdOf(req);
+  const p = household.profileForUser(uid);
+  if (!p) return res.status(500).render('error', { title: 'No household', message: 'No household found.' });
   try {
     const generated = planner.generatePlan(p.id, uid);
     const planId = planner.savePlan(p.id, generated, uid);
@@ -30,11 +28,9 @@ router.post('/planner/generate', (req, res) => {
   }
 });
 
-// Ownership guard: when authed, refuse to mutate a plan owned by someone
-// else. Pre-auth fallback acts on any plan (legacy behavior).
+// Ownership guard: refuses to mutate a plan owned by another user.
 function planOwnedByRequestOr404(req, res, planId) {
   const uid = userIdOf(req);
-  if (!uid) return true;
   const p = db.prepare('SELECT id FROM weekly_plans WHERE id = ? AND user_id = ?').get(planId, uid);
   if (!p) {
     res.status(404).render('error', { title: 'Not Found', message: 'Plan not found.' });
@@ -43,7 +39,7 @@ function planOwnedByRequestOr404(req, res, planId) {
   return true;
 }
 
-router.post('/planner/update-slot', (req, res) => {
+router.post('/planner/update-slot', requireAuth, (req, res) => {
   const b = req.body;
   const planId = parseInt(b.plan_id, 10);
   if (!planOwnedByRequestOr404(req, res, planId)) return;
@@ -63,23 +59,23 @@ router.post('/planner/update-slot', (req, res) => {
   res.redirect('/plan/' + planId);
 });
 
-router.post('/planner/approve', (req, res) => {
+router.post('/planner/approve', requireAuth, (req, res) => {
   const planId = parseInt(req.body.plan_id, 10);
   if (!planOwnedByRequestOr404(req, res, planId)) return;
   planner.approvePlan(planId);
   res.redirect('/plan/' + planId);
 });
 
-router.get('/plan/:id', (req, res) => {
+router.get('/plan/:id', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!planOwnedByRequestOr404(req, res, id)) return;
   const plan = planner.loadPlan(id);
   if (!plan) return res.status(404).render('error', { title: 'Not Found', message: 'Plan not found' });
   const uid = userIdOf(req);
-  // Recipes shown in the swap dropdowns also scope to this user.
-  const allRecipes = uid
-    ? db.prepare('SELECT id, name, meal_type FROM recipes WHERE user_id = ? ORDER BY meal_type, name').all(uid)
-    : db.prepare('SELECT id, name, meal_type FROM recipes ORDER BY meal_type, name').all();
+  // Recipes shown in the swap dropdowns are scoped to this user.
+  const allRecipes = db.prepare(
+    'SELECT id, name, meal_type FROM recipes WHERE user_id = ? ORDER BY meal_type, name'
+  ).all(uid);
   const shopping = db.prepare('SELECT * FROM shopping_items WHERE plan_id = ? ORDER BY name').all(id);
   const matches = db.prepare(`SELECT wm.*, si.name as item_name FROM walmart_matches wm
     JOIN shopping_items si ON wm.shopping_item_id = si.id

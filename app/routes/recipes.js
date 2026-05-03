@@ -2,7 +2,7 @@ const express = require('express');
 const db = require('../db');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
-const { userIdOf } = require('../services/auth');
+const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
@@ -26,22 +26,18 @@ function parseIngredients(body) {
   return out;
 }
 
-// Fetch a recipe scoped to the request's user when authed; legacy fallback
-// returns any recipe by id (matches pre-auth behavior).
+// Fetch a recipe scoped to the request's user. Returns null on miss
+// (not-found OR not-owned both look the same — by design, no information leak).
 function fetchRecipe(id, uid) {
-  const r = uid
-    ? db.prepare('SELECT * FROM recipes WHERE id = ? AND user_id = ?').get(id, uid)
-    : db.prepare('SELECT * FROM recipes WHERE id = ?').get(id);
+  const r = db.prepare('SELECT * FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
   if (!r) return null;
   r.ingredients = db.prepare('SELECT * FROM recipe_ingredients WHERE recipe_id = ?').all(id);
   return r;
 }
 
-router.get('/recipes', (req, res) => {
+router.get('/recipes', requireAuth, (req, res) => {
   const uid = userIdOf(req);
-  const recipes = uid
-    ? db.prepare('SELECT * FROM recipes WHERE user_id = ? ORDER BY meal_type, name').all(uid)
-    : db.prepare('SELECT * FROM recipes ORDER BY meal_type, name').all();
+  const recipes = db.prepare('SELECT * FROM recipes WHERE user_id = ? ORDER BY meal_type, name').all(uid);
   const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10), uid) : null;
   const counts = {
     total: recipes.length,
@@ -59,7 +55,7 @@ router.get('/recipes', (req, res) => {
 // page can render results without a full reload.
 // NOTE: defined above the POST /recipes/:id handler so the literal path
 // match wins over the :id capture.
-router.get('/recipes/search-online', async (req, res) => {
+router.get('/recipes/search-online', requireAuth, async (req, res) => {
   const q = (req.query.q || '').trim();
   if (!q) return res.json({ results: [] });
   if (!spoonacular.isEnabled()) {
@@ -76,7 +72,7 @@ router.get('/recipes/search-online', async (req, res) => {
 // Compute estimated nutrition for a list of ingredients without persisting.
 // Used by the "Pre-fill from USDA" button on the recipe form so the user
 // can see what'll get saved before committing.
-router.post('/recipes/nutrition-preview', express.json(), async (req, res) => {
+router.post('/recipes/nutrition-preview', requireAuth, express.json(), async (req, res) => {
   const ingredients = Array.isArray(req.body && req.body.ingredients) ? req.body.ingredients : [];
   const servings = parseInt((req.body && req.body.servings) || 1, 10) || 1;
   if (!ingredients.length) return res.json({ ok: false, reason: 'no ingredients' });
@@ -88,7 +84,7 @@ router.post('/recipes/nutrition-preview', express.json(), async (req, res) => {
   }
 });
 
-router.post('/recipes/import-online', async (req, res) => {
+router.post('/recipes/import-online', requireAuth, async (req, res) => {
   const b = req.body;
   const sourceId = (b.source_id || '').toString();
   if (!sourceId) return res.redirect('/recipes');
@@ -124,11 +120,9 @@ router.post('/recipes/import-online', async (req, res) => {
   }
 });
 
-router.post('/recipes', (req, res) => {
+router.post('/recipes', requireAuth, (req, res) => {
   const b = req.body;
-  const warnings = [];
   const name = (b.name || '').trim();
-  if (!name) warnings.push('Name required');
   const mealType = (b.meal_type || 'dinner').trim();
   const info = db.prepare(`INSERT INTO recipes
     (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
@@ -157,20 +151,16 @@ router.post('/recipes', (req, res) => {
   res.redirect('/recipes');
 });
 
-router.post('/recipes/:id', (req, res) => {
+router.post('/recipes/:id', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
   const b = req.body;
-  // Ownership guard: when authed, only update recipes owned by the request's
-  // user. Pre-auth fallback updates any recipe (legacy behavior).
-  if (uid) {
-    const own = db.prepare('SELECT id FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
-    if (!own) return res.status(404).render('error', { title: 'Not Found', message: 'Recipe not found.' });
-  }
+  const own = db.prepare('SELECT id FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
+  if (!own) return res.status(404).render('error', { title: 'Not Found', message: 'Recipe not found.' });
   db.prepare(`UPDATE recipes SET
     name = ?, meal_type = ?, cuisine = ?, kid_friendly = ?, prep_time = ?, servings = ?, est_cost = ?,
     calories = ?, protein = ?, fiber = ?, sugar = ?, sodium = ?, favorite = ?, notes = ?
-    WHERE id = ?`)
+    WHERE id = ? AND user_id = ?`)
     .run(
       (b.name || 'Untitled').trim(),
       (b.meal_type || 'dinner').trim(),
@@ -186,7 +176,8 @@ router.post('/recipes/:id', (req, res) => {
       b.sodium ? parseFloat(b.sodium) : null,
       b.favorite ? 1 : 0,
       (b.notes || '').trim() || null,
-      id
+      id,
+      uid
     );
   db.prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
   const ings = parseIngredients(b);
@@ -195,25 +186,21 @@ router.post('/recipes/:id', (req, res) => {
   res.redirect('/recipes');
 });
 
-router.post('/recipes/:id/favorite', (req, res) => {
+router.post('/recipes/:id/favorite', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
-  const current = uid
-    ? db.prepare('SELECT favorite FROM recipes WHERE id = ? AND user_id = ?').get(id, uid)
-    : db.prepare('SELECT favorite FROM recipes WHERE id = ?').get(id);
-  if (current) db.prepare('UPDATE recipes SET favorite = ? WHERE id = ?').run(current.favorite ? 0 : 1, id);
+  const current = db.prepare('SELECT favorite FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
+  if (current) {
+    db.prepare('UPDATE recipes SET favorite = ? WHERE id = ? AND user_id = ?')
+      .run(current.favorite ? 0 : 1, id, uid);
+  }
   res.redirect(req.get('referer') || '/recipes');
 });
 
-router.post('/recipes/:id/delete', (req, res) => {
+router.post('/recipes/:id/delete', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
-  // Ownership guard before delete. Pre-auth fallback deletes by id only.
-  if (uid) {
-    db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
-  } else {
-    db.prepare('DELETE FROM recipes WHERE id = ?').run(id);
-  }
+  db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
   res.redirect('/recipes');
 });
 

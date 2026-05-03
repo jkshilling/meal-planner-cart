@@ -2,6 +2,7 @@
 <h1>Settings</h1>
 <% if (saved) { %><div class="flash success">Saved.</div><% } %>
 <form method="post" action="/settings" class="stack">
+  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
   <div class="card">
     <h2>Household</h2>
     <label>Name <input name="name" value="<%= profile.name %>" /></label>
@@ -87,6 +88,7 @@
       <code style="user-select: all; padding: 4px 8px; background: #f4f4f4; border-radius: 4px; font-size: 13px;"><%= groceryToken %></code>
     </p>
     <form method="post" action="/settings/grocery-token/rotate" style="display:inline">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button class="btn" type="submit"
               onclick="return confirm('Rotating invalidates the current token everywhere it is in use. Continue?');">
         Rotate token

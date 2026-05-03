@@ -50,6 +50,8 @@ app.use((req, res, next) => {
 });
 
 // Expose feature flags + display helpers + current user to all views.
+// Mounted before csrf.verify so a CSRF-rejection error page still has the
+// nav locals (walmartEnabled, currentUser) it needs to render.
 const { formatDate, formatDateTime } = require('./services/format');
 app.use((req, res, next) => {
   res.locals.walmartEnabled = process.env.WALMART_ENABLED === 'true';
@@ -58,6 +60,14 @@ app.use((req, res, next) => {
   res.locals.currentUser = (req.session && req.session.user) ? req.session.user : null;
   next();
 });
+
+// CSRF: ensure a session token exists (exposed to views via res.locals.csrfToken)
+// and verify state-changing requests carry it. Bearer-authed JSON endpoints
+// (extension talks to /api/grocery-events and /api/grocery/favorites) are
+// exempt — see services/csrf.js.
+const csrf = require('./services/csrf');
+app.use(csrf.ensureToken);
+app.use(csrf.verify);
 
 app.use(require('./routes/auth'));
 app.use(require('./routes/index'));

@@ -10,7 +10,7 @@
 const express = require('express');
 const db = require('../db');
 const { requireTokenAndResolveUser } = require('../services/grocery_token');
-const { userIdOf } = require('../services/auth');
+const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
@@ -29,85 +29,69 @@ function extensionCors(req, res, next) {
   next();
 }
 
-router.get('/grocery', (req, res) => {
+router.get('/grocery', requireAuth, (req, res) => {
   const uid = userIdOf(req);
-  // Searches and ingredient_products scope to the user; walmart_products
-  // and price history are intentionally global caches.
-  const userScopeSql = uid ? 'WHERE user_id = ?' : '';
-  const userScopeArgs = uid ? [uid] : [];
-
+  // Searches and ingredient_products are scoped to the user; walmart_products
+  // and price history are intentionally global caches (price-over-time is
+  // shared knowledge, not per-user).
   const stats = {
-    searches: db.prepare(`SELECT COUNT(*) AS n FROM grocery_searches ${userScopeSql}`).get(...userScopeArgs).n,
+    searches: db.prepare('SELECT COUNT(*) AS n FROM grocery_searches WHERE user_id = ?').get(uid).n,
     products: db.prepare('SELECT COUNT(*) AS n FROM walmart_products').get().n,
     pricePoints: db.prepare('SELECT COUNT(*) AS n FROM walmart_price_history').get().n,
     confirmedMappings: db.prepare(
-      `SELECT COUNT(*) AS n FROM ingredient_products WHERE user_confirmed = 1 ${uid ? 'AND user_id = ?' : ''}`
-    ).get(...userScopeArgs).n
+      'SELECT COUNT(*) AS n FROM ingredient_products WHERE user_confirmed = 1 AND user_id = ?'
+    ).get(uid).n
   };
   const recent = db.prepare(`
     SELECT s.id, s.retailer, s.query, s.pick_source, s.result_count, s.searched_at,
            p.name AS picked_name, p.product_url AS picked_url, p.latest_price AS picked_price
       FROM grocery_searches s
  LEFT JOIN walmart_products p ON p.id = s.picked_product_id
-      ${uid ? 'WHERE s.user_id = ?' : ''}
+     WHERE s.user_id = ?
   ORDER BY s.searched_at DESC
      LIMIT 100
-  `).all(...userScopeArgs);
-  // Top queries by frequency.
+  `).all(uid);
   const topQueries = db.prepare(`
     SELECT query, COUNT(*) AS n,
            SUM(CASE WHEN pick_source = 'override' THEN 1 ELSE 0 END) AS overrides
       FROM grocery_searches
-      ${userScopeSql}
+     WHERE user_id = ?
   GROUP BY query
   ORDER BY n DESC
      LIMIT 25
-  `).all(...userScopeArgs);
+  `).all(uid);
   res.render('grocery_index', { title: 'Grocery data', stats, recent, topQueries });
 });
 
-router.get('/grocery/products', (req, res) => {
+router.get('/grocery/products', requireAuth, (req, res) => {
   const uid = userIdOf(req);
   // Always send the latest 200; the page filters client-side via typeahead +
   // favorites checkbox. Sort favorites first, then group by category so
   // similar items cluster (cheese with cheese, bread with bread); within
-  // each tier, freshest first.
-  //
-  // Favorites live in user_favorites (per-user). When unauthed (legacy
-  // pre-auth path), fall back to the walmart_products.is_favorite column so
-  // the existing data still surfaces; commit 5 will drop this fallback once
-  // requireAuth gates this route.
-  const rows = uid
-    ? db.prepare(`
-        SELECT p.id, p.name, p.size_text, p.unit_price, p.latest_price, p.latest_price_at,
-               p.last_seen_at, p.image_url, p.category,
-               CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS is_favorite
-          FROM walmart_products p
-     LEFT JOIN user_favorites uf
-            ON uf.walmart_product_id = p.id AND uf.user_id = ?
-      ORDER BY is_favorite DESC, COALESCE(p.category, 'zzz'), p.last_seen_at DESC
-         LIMIT 200
-      `).all(uid)
-    : db.prepare(`
-        SELECT id, name, size_text, unit_price, latest_price, latest_price_at,
-               last_seen_at, image_url, is_favorite, category
-          FROM walmart_products
-      ORDER BY is_favorite DESC, COALESCE(category, 'zzz'), last_seen_at DESC
-         LIMIT 200
-      `).all();
-  const favoriteCount = uid
-    ? db.prepare('SELECT COUNT(*) AS n FROM user_favorites WHERE user_id = ?').get(uid).n
-    : db.prepare('SELECT COUNT(*) AS n FROM walmart_products WHERE is_favorite = 1').get().n;
+  // each tier, freshest first. Favorites are derived from user_favorites
+  // via LEFT JOIN so each user only sees their own stars.
+  const rows = db.prepare(`
+    SELECT p.id, p.name, p.size_text, p.unit_price, p.latest_price, p.latest_price_at,
+           p.last_seen_at, p.image_url, p.category,
+           CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+      FROM walmart_products p
+ LEFT JOIN user_favorites uf
+        ON uf.walmart_product_id = p.id AND uf.user_id = ?
+  ORDER BY is_favorite DESC, COALESCE(p.category, 'zzz'), p.last_seen_at DESC
+     LIMIT 200
+  `).all(uid);
+  const favoriteCount = db.prepare(
+    'SELECT COUNT(*) AS n FROM user_favorites WHERE user_id = ?'
+  ).get(uid).n;
   res.render('grocery_products', { title: 'Products', rows, favoriteCount });
 });
 
 // Toggle a product's favorite flag for the current user. Used by the star
 // button in the catalog table. Idempotent: re-clicking removes the row.
-router.post('/grocery/products/:id/favorite', (req, res) => {
+router.post('/grocery/products/:id/favorite', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.redirect('/grocery/products');
   const uid = userIdOf(req);
-  if (!uid) return res.redirect('/login');
   // Insert if missing, delete if present. Single round-trip via a tiny
   // transaction so concurrent double-clicks can't race into a duplicate row
   // (the PRIMARY KEY would already block that, but being explicit avoids
@@ -157,7 +141,7 @@ router.get('/grocery/favorites.json', (req, res) => {
   res.redirect(308, '/api/grocery/favorites');
 });
 
-router.get('/grocery/products/:id', (req, res) => {
+router.get('/grocery/products/:id', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const product = db.prepare('SELECT * FROM walmart_products WHERE id = ?').get(id);
   if (!product) return res.status(404).render('error', { title: 'Not found', message: 'No such product.' });
@@ -166,19 +150,16 @@ router.get('/grocery/products/:id', (req, res) => {
      WHERE product_id = ?
   ORDER BY seen_at ASC
   `).all(id);
+  // "Searches that picked this product" is scoped to the current user so one
+  // user's picks aren't visible to another. Product + price history are
+  // intentionally global (per-product cache, not per-user data).
   const uid = userIdOf(req);
-  // "Searches that picked this product" — scope to current user when authed
-  // so one user's picks aren't visible to another. Product itself + price
-  // history stay global (they're per-product cache, not per-user data).
-  const searches = uid
-    ? db.prepare(`SELECT id, query, pick_source, searched_at
-                    FROM grocery_searches
-                   WHERE picked_product_id = ? AND user_id = ?
-                ORDER BY searched_at DESC LIMIT 50`).all(id, uid)
-    : db.prepare(`SELECT id, query, pick_source, searched_at
-                    FROM grocery_searches
-                   WHERE picked_product_id = ?
-                ORDER BY searched_at DESC LIMIT 50`).all(id);
+  const searches = db.prepare(`
+    SELECT id, query, pick_source, searched_at
+      FROM grocery_searches
+     WHERE picked_product_id = ? AND user_id = ?
+  ORDER BY searched_at DESC LIMIT 50
+  `).all(id, uid);
   res.render('grocery_product', { title: product.name, product, history, searches });
 });
 

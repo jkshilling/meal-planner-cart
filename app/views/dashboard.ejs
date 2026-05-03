@@ -23,6 +23,7 @@
       <p class="muted">No plan yet.</p>
     <% } %>
     <form action="/planner/generate" method="post" style="margin-top:8px">
+      <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
       <button class="btn primary" type="submit">Generate new plan</button>
     </form>
   </section>

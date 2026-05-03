@@ -3,35 +3,38 @@ const db = require('../db');
 const { loadProfile } = require('../services/planner');
 const groceryToken = require('../services/grocery_token');
 const household = require('../services/household');
+const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
-router.get('/settings', (req, res) => {
-  const p = household.profileForRequest(req);
-  if (!p) return res.redirect('/login');
+router.get('/settings', requireAuth, (req, res) => {
+  const uid = userIdOf(req);
+  const p = household.profileForUser(uid);
+  if (!p) {
+    return res.status(500).render('error', {
+      title: 'No household',
+      message: 'No household found for your account.'
+    });
+  }
   const profile = loadProfile(p.id);
-  // Token is per-user. Pre-auth fallback: no token shown until the user
-  // has logged in (the extension can't authenticate as nobody anyway).
-  const uid = req.session && req.session.user ? req.session.user.id : null;
   res.render('settings', {
     title: 'Settings',
     profile,
     saved: req.query.saved === '1',
-    groceryToken: uid ? groceryToken.ensureForUser(uid) : null,
+    groceryToken: groceryToken.ensureForUser(uid),
     tokenRotated: req.query.tokenRotated === '1'
   });
 });
 
-router.post('/settings/grocery-token/rotate', (req, res) => {
-  const uid = req.session && req.session.user ? req.session.user.id : null;
-  if (!uid) return res.redirect('/login');
-  groceryToken.rotateForUser(uid);
+router.post('/settings/grocery-token/rotate', requireAuth, (req, res) => {
+  groceryToken.rotateForUser(userIdOf(req));
   res.redirect('/settings?tokenRotated=1#grocery-extension');
 });
 
-router.post('/settings', (req, res) => {
-  const p = household.profileForRequest(req);
-  if (!p) return res.redirect('/login');
+router.post('/settings', requireAuth, (req, res) => {
+  const uid = userIdOf(req);
+  const p = household.profileForUser(uid);
+  if (!p) return res.status(500).render('error', { title: 'No household', message: 'No household found.' });
   const body = req.body;
   const toJSONList = (v) => {
     if (Array.isArray(v)) return JSON.stringify(v.filter(Boolean));
@@ -41,15 +44,16 @@ router.post('/settings', (req, res) => {
   const mealTypes = ['breakfast', 'lunch', 'snack', 'dinner'].filter(t => body['meal_' + t]);
   const pairSidesWith = ['lunch', 'dinner'].filter(t => body['pair_sides_' + t]);
   const budget = parseFloat(body.budget_weekly);
-  const warnings = [];
-  if (!isFinite(budget) || budget <= 0) warnings.push('Budget must be positive');
   const safeBudget = isFinite(budget) && budget > 0 ? budget : 150;
 
+  // Re-confirm ownership in the WHERE clause so a forged p.id can't slip
+  // through. Belt and suspenders given household.profileForUser already
+  // scopes by user_id.
   db.prepare(`UPDATE household_profiles SET
     name = ?, budget_weekly = ?, optimization_mode = ?, breakfast_simplicity = ?, max_prep_time = ?,
     meal_types_json = ?, pair_sides_with_json = ?, dietary_constraints_json = ?, allergies_json = ?,
     disliked_ingredients_json = ?, favorite_meals_json = ?, preferred_cuisines_json = ?
-    WHERE id = ?`)
+    WHERE id = ? AND user_id = ?`)
     .run(
       body.name || 'Household',
       safeBudget,
@@ -63,7 +67,8 @@ router.post('/settings', (req, res) => {
       toJSONList(body.disliked_ingredients),
       toJSONList(body.favorite_meals),
       toJSONList(body.preferred_cuisines),
-      p.id
+      p.id,
+      uid
     );
 
   // Members: replace with submitted set

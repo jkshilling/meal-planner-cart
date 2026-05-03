@@ -168,8 +168,11 @@ CREATE TABLE IF NOT EXISTS walmart_products (
   fiber REAL,
   sugar REAL,
   sodium REAL,
-  -- User-marked favorite. Read by the food-buyer extension to bias its
-  -- product picking when scanning Walmart search results.
+  -- DEPRECATED. Was the global "favorite" flag before favorites became
+  -- per-user (see user_favorites). Kept on the schema for legacy data
+  -- migrated by claimOrphanedHouseholds. Not written to anywhere; routes
+  -- read user_favorites instead. Will be dropped in a future migration
+  -- once all known installs have run the claim.
   is_favorite INTEGER NOT NULL DEFAULT 0,
   -- Coarse grocery-aisle category derived from the product name at ingest
   -- time. Used to group/filter the catalog. NULL for legacy rows; populated
@@ -308,7 +311,7 @@ ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAUL
 // Per-unit price string from the search card ("$9.88/lb"). Stored verbatim;
 // catalog UI displays as-is. Nullable because not every product card has it.
 ensureColumn('walmart_products', 'unit_price', 'TEXT');
-// User-marked favorite — read by the food-buyer extension to bias picks.
+// DEPRECATED: see CREATE TABLE comment. Kept for legacy migration only.
 ensureColumn('walmart_products', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
 // Coarse grocery category, derived from product name at ingest time.
 ensureColumn('walmart_products', 'category', 'TEXT');
@@ -335,15 +338,9 @@ db.prepare(`
    WHERE meal_types_json LIKE '%"side"%'
 `).run();
 
-function ensureProfile() {
-  const row = db.prepare('SELECT * FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1').get();
-  if (row) return row;
-  const info = db.prepare('INSERT INTO household_profiles (name) VALUES (?)').run('My Household');
-  db.prepare('INSERT INTO household_members (profile_id, name, label, lunch_behavior) VALUES (?, ?, ?, ?)')
-    .run(info.lastInsertRowid, 'Me', 'adult', 'plan');
-  return db.prepare('SELECT * FROM household_profiles WHERE id = ?').get(info.lastInsertRowid);
-}
-
-ensureProfile();
+// Pre-auth ensureProfile() used to auto-create a household at boot. Removed
+// now that requireAuth gates everything: profiles are created by
+// services/household.createHouseholdForUser at signup time, and the bootstrap
+// owner inherits any orphan profile via claimOrphanedHouseholds.
 
 module.exports = db;

@@ -39,13 +39,11 @@ function carbTagFor(recipe) {
   return 'none';
 }
 
-// Pull the recipe pool used by the planner. When userId is provided,
-// scope to that user's recipes; pre-auth callers pass null and get all
-// recipes (legacy behavior).
+// Pull the recipe pool used by the planner, scoped to one user. Required —
+// callers without a user shouldn't be planning anything.
 function loadRecipes(userId) {
-  const recipes = userId
-    ? db.prepare('SELECT * FROM recipes WHERE user_id = ?').all(userId)
-    : db.prepare('SELECT * FROM recipes').all();
+  if (!userId) throw new Error('loadRecipes: userId required');
+  const recipes = db.prepare('SELECT * FROM recipes WHERE user_id = ?').all(userId);
   const ids = recipes.map(r => r.id);
   let ings = [];
   if (ids.length) {
@@ -203,9 +201,9 @@ function pickSideFor(main, sidePool, ctx) {
   return scored[0];
 }
 
-// userId optional. When provided, the recipe pool is scoped to that user.
-// Pre-auth callers pass nothing and get all recipes.
+// Scopes the recipe pool to userId.
 function generatePlan(profileId, userId) {
+  if (!userId) throw new Error('generatePlan: userId required');
   const profile = loadProfile(profileId);
   if (!profile) throw new Error('No household profile');
   const allRecipes = loadRecipes(userId).filter(r => recipePassesHardFilters(r, profile));
@@ -283,16 +281,14 @@ function generatePlan(profileId, userId) {
   return { profile, items, warnings, totalCost };
 }
 
-// userId optional during the WIP migration. Pre-auth callers pass nothing
-// and the resulting plan stays orphaned (user_id NULL); commit 5 makes
-// userId mandatory.
 function savePlan(profileId, generated, userId) {
+  if (!userId) throw new Error('savePlan: userId required');
   const today = new Date();
   const startDate = today.toISOString().slice(0, 10);
   const insertPlan = db.prepare(
     'INSERT INTO weekly_plans (profile_id, user_id, start_date, status, total_cost) VALUES (?, ?, ?, ?, ?)'
   );
-  const info = insertPlan.run(profileId, userId || null, startDate, 'draft', generated.totalCost);
+  const info = insertPlan.run(profileId, userId, startDate, 'draft', generated.totalCost);
   const planId = info.lastInsertRowid;
   const insertItem = db.prepare(`INSERT INTO weekly_plan_items
     (plan_id, day, meal_type, recipe_id, score_json, side_recipe_id, side_score_json)
@@ -358,8 +354,7 @@ function regenerateSlot(planId, day, mealType, target = 'main') {
   const profile = plan.profile;
   const item = plan.items.find(it => it.day === day && it.meal_type === mealType);
   if (!item) return;
-  // Scope the recipe pool to the plan's owner. Plans created pre-auth have
-  // user_id NULL and inherit "all recipes" via loadRecipes' fallback.
+  // Scope the recipe pool to the plan's owner.
   const allRecipes = loadRecipes(plan.user_id).filter(r => recipePassesHardFilters(r, profile));
   const usedCounts = {};
   for (const it of plan.items) {

@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const productCache = require('../services/product_cache');
+const { requireAuth } = require('../services/auth');
 
 const router = express.Router();
 
@@ -16,7 +17,7 @@ function requireWalmart(req, res, next) {
   next();
 }
 
-router.get('/products', requireWalmart, (req, res) => {
+router.get('/products', requireAuth, requireWalmart, (req, res) => {
   const products = productCache.allProducts();
   const summary = productCache.mappingsSummary();
 
@@ -36,13 +37,13 @@ router.get('/products', requireWalmart, (req, res) => {
   res.render('products', { title: 'Walmart product cache', products, summary });
 });
 
-router.post('/products/mapping/:mappingId/delete', requireWalmart, (req, res) => {
+router.post('/products/mapping/:mappingId/delete', requireAuth, requireWalmart, (req, res) => {
   const id = parseInt(req.params.mappingId, 10);
   db.prepare('DELETE FROM ingredient_products WHERE id = ?').run(id);
   res.redirect('/products');
 });
 
-router.post('/products/:id/delete', requireWalmart, (req, res) => {
+router.post('/products/:id/delete', requireAuth, requireWalmart, (req, res) => {
   const id = parseInt(req.params.id, 10);
   db.prepare('DELETE FROM walmart_products WHERE id = ?').run(id);
   res.redirect('/products');
