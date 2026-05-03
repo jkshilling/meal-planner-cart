@@ -110,19 +110,80 @@ function cleanSize(s) {
   return trimmed;
 }
 
+// Compute a per-unit price string when Walmart didn't provide one. We extract
+// a size from the product name (most grocery items include "12 oz" / "1 lb" /
+// etc.) and divide latest_price by the quantity. Only used as a fallback —
+// a Walmart-provided unit_price always wins.
+//
+// Order of patterns matters: check the more specific tokens first ("fl oz"
+// before "oz", "kg" before "g"). Patterns are case-insensitive except "L"
+// for liters, where the lowercase "l" would match too many false positives
+// (Lake, Lipton, etc.).
+const SIZE_PATTERNS = [
+  { rx: /(\d+\.?\d*)\s*fl\.?\s*oz\b/i,         unit: 'fl oz' },
+  { rx: /(\d+\.?\d*)\s*fluid\s+ounces?\b/i,    unit: 'fl oz' },
+  { rx: /(\d+\.?\d*)\s*oz\b/i,                 unit: 'oz' },
+  { rx: /(\d+\.?\d*)\s*ounces?\b/i,            unit: 'oz' },
+  { rx: /(\d+\.?\d*)\s*lbs?\b/i,               unit: 'lb' },
+  { rx: /(\d+\.?\d*)\s*pounds?\b/i,            unit: 'lb' },
+  { rx: /(\d+\.?\d*)\s*gal\b/i,                unit: 'gal' },
+  { rx: /(\d+\.?\d*)\s*gallons?\b/i,           unit: 'gal' },
+  { rx: /(\d+\.?\d*)\s*qt\b/i,                 unit: 'qt' },
+  { rx: /(\d+\.?\d*)\s*quarts?\b/i,            unit: 'qt' },
+  { rx: /(\d+\.?\d*)\s*pt\b/i,                 unit: 'pt' },
+  { rx: /(\d+\.?\d*)\s*pints?\b/i,             unit: 'pt' },
+  { rx: /(\d+\.?\d*)\s*ml\b/i,                 unit: 'ml' },
+  { rx: /(\d+\.?\d*)\s*L\b/,                   unit: 'L' },   // case-sensitive on purpose
+  { rx: /(\d+\.?\d*)\s*liters?\b/i,            unit: 'L' },
+  { rx: /(\d+\.?\d*)\s*kg\b/i,                 unit: 'kg' },
+  { rx: /(\d+\.?\d*)\s*kilograms?\b/i,         unit: 'kg' },
+  { rx: /(\d+)\s*(?:ct|count|pack|pk)\b/i,     unit: 'ct' }    // count is the last fallback
+];
+
+function extractSizeFromName(name) {
+  if (!name) return null;
+  for (const { rx, unit } of SIZE_PATTERNS) {
+    const m = name.match(rx);
+    if (m) {
+      const qty = parseFloat(m[1]);
+      if (qty > 0 && Number.isFinite(qty)) return { quantity: qty, unit };
+    }
+  }
+  return null;
+}
+
+function computeUnitPrice(price, name) {
+  if (typeof price !== 'number' || !isFinite(price) || price <= 0) return null;
+  const size = extractSizeFromName(name);
+  if (!size) return null;
+  const per = price / size.quantity;
+  if (!isFinite(per) || per <= 0) return null;
+  // 3 decimal places below 10 cents (sub-cent precision when relevant);
+  // 2 decimal places everywhere else. Avoids "$0.04/oz" hiding the difference
+  // between $0.035 and $0.044 for cheap-by-the-ounce staples.
+  const formatted = per < 0.10 ? per.toFixed(3) : per.toFixed(2);
+  return `$${formatted}/${size.unit}`;
+}
+
 function upsertProduct(r) {
   const url = String(r.url || '').trim();
   if (!url) return null;
   const existing = selectByUrl.get(url);
+  const name = String(r.title || '').slice(0, 500) || '(unknown)';
+  const latestPrice = typeof r.price === 'number' && isFinite(r.price) ? r.price : null;
   const fields = {
     walmart_item_id: r.walmartItemId || null,
     product_url: url,
-    name: String(r.title || '').slice(0, 500) || '(unknown)',
+    name,
     brand: r.brand ? String(r.brand).slice(0, 200) : null,
     size_text: cleanSize(r.sizeText),
-    unit_price: r.unitPrice ? String(r.unitPrice).slice(0, 50) : null,
-    latest_price: typeof r.price === 'number' && isFinite(r.price) ? r.price : null,
-    latest_price_at: typeof r.price === 'number' && isFinite(r.price) ? new Date().toISOString() : null,
+    // Walmart-provided unit price wins; fall back to one we compute from
+    // (latest_price ÷ size-in-name) when the extension didn't deliver one.
+    unit_price: r.unitPrice
+      ? String(r.unitPrice).slice(0, 50)
+      : computeUnitPrice(latestPrice, name),
+    latest_price: latestPrice,
+    latest_price_at: latestPrice != null ? new Date().toISOString() : null,
     image_url: r.imageUrl ? String(r.imageUrl).slice(0, 1000) : null
   };
   if (existing) {
@@ -168,18 +229,20 @@ function ingestEvent(ev, sessionId) {
     query: String(ev.query || '').slice(0, 500),
     shopping_item_id: Number.isInteger(ev.shoppingItemId) ? ev.shoppingItemId : null,
     picked_product_id: pickedProductId,
-    pick_source: ['auto', 'override', 'failed'].includes(ev.pickSource) ? ev.pickSource : 'auto',
+    pick_source: ['auto', 'override', 'favorite', 'failed'].includes(ev.pickSource) ? ev.pickSource : 'auto',
     result_count: results.length,
     client_session_id: sessionId || null,
     searched_at: ev.searchedAt || new Date().toISOString()
   });
 
-  // Learn the ingredient -> product mapping. user_confirmed when override.
+  // Learn the ingredient -> product mapping. Both manual overrides and
+  // favorite-driven picks are user-validated signals — record both as
+  // user_confirmed=1 so the mapping persists with high confidence.
   if (pickedProductId && ev.query) {
     upsertIngredientProduct.run({
       ingredient_name: String(ev.query).toLowerCase().trim(),
       product_id: pickedProductId,
-      user_confirmed: ev.pickSource === 'override' ? 1 : 0
+      user_confirmed: (ev.pickSource === 'override' || ev.pickSource === 'favorite') ? 1 : 0
     });
   }
 

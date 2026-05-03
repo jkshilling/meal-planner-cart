@@ -9,8 +9,24 @@
 
 const express = require('express');
 const db = require('../db');
+const { requireToken } = require('../services/grocery_token');
 
 const router = express.Router();
+
+// CORS for the food-buyer Chrome extension. Only chrome-extension:// origins
+// can read responses. Mirrors the policy on /api/grocery-events.
+function extensionCors(req, res, next) {
+  const origin = req.get('Origin') || '';
+  if (origin.startsWith('chrome-extension://')) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Max-Age', '600');
+  }
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+}
 
 router.get('/grocery', (req, res) => {
   const stats = {
@@ -79,11 +95,13 @@ router.post('/grocery/products/:id/favorite', (req, res) => {
   res.redirect(back);
 });
 
-// JSON endpoint the food-buyer extension can poll to learn which products
-// the user has favorited. Returns just enough data for the extension to
-// match against Walmart search results (URL or item ID) — keeps payload
-// small and avoids leaking internal IDs.
-router.get('/grocery/favorites.json', (req, res) => {
+// JSON endpoint the food-buyer extension polls to learn which products the
+// user has favorited. Bearer-token authed (same token as /api/grocery-events)
+// so favorites can't be enumerated by anyone who finds the URL. Returns just
+// enough data for the extension to match against Walmart search results
+// (URL or item ID).
+router.options('/api/grocery/favorites', extensionCors);
+router.get('/api/grocery/favorites', extensionCors, requireToken, (req, res) => {
   const rows = db.prepare(`
     SELECT walmart_item_id, product_url, name
       FROM walmart_products
@@ -91,6 +109,14 @@ router.get('/grocery/favorites.json', (req, res) => {
   ORDER BY last_seen_at DESC
   `).all();
   res.json({ favorites: rows });
+});
+
+// Back-compat shim. The earlier /grocery/favorites.json was unauthenticated
+// and intended to be the public path; redirect to the authed endpoint so
+// any client coded against the old URL gets a clear 401 instead of silent
+// data leakage.
+router.get('/grocery/favorites.json', (req, res) => {
+  res.redirect(308, '/api/grocery/favorites');
 });
 
 router.get('/grocery/products/:id', (req, res) => {
