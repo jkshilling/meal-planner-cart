@@ -2,16 +2,16 @@
 // API: https://spoonacular.com/food-api
 // Docs: https://spoonacular.com/food-api/docs
 //
-// Why this over TheMealDB: ~360k structured recipes vs ~300, plus per-recipe
-// nutrition AND pricePerServing baked into responses — so imported recipes
-// land with both nutrition and cost pre-filled, no USDA lookup needed.
+// Per-recipe nutrition AND pricePerServing are baked into responses, so
+// imported recipes land with both nutrition and cost pre-filled.
 //
 // Cost model: free tier is 150 "points" per day. complexSearch with
-// addRecipeInformation+addRecipeNutrition costs ~5–8 points per response,
-// so a friend importing 10 recipes/day stays well under the cap.
+// addRecipeInformation+addRecipeNutrition costs ~1.5 points per call,
+// so a friend importing 10+ recipes/day stays well under the cap.
 //
 // Key: process.env.SPOONACULAR_API_KEY. If missing, isEnabled() returns
-// false and the routes 404 — same flag-off-pattern we use for Walmart.
+// false and the search/import routes return errors — same flag-off
+// pattern as Walmart.
 
 const SP_BASE = 'https://api.spoonacular.com';
 

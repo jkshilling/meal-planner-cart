@@ -1,6 +1,5 @@
 const express = require('express');
 const db = require('../db');
-const mealdb = require('../services/mealdb');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
 
@@ -54,23 +53,15 @@ router.get('/recipes', (req, res) => {
 // match wins over the :id capture.
 router.get('/recipes/search-online', async (req, res) => {
   const q = (req.query.q || '').trim();
-  // Default to Spoonacular when its key is present (~360k recipes, has
-  // built-in nutrition + cost). Fall back to TheMealDB (~300, free) when
-  // either the key is missing or the user explicitly picks it.
-  const requested = req.query.source;
-  const source = requested === 'mealdb' ? 'mealdb' :
-                 (requested === 'spoonacular' || spoonacular.isEnabled()) ? 'spoonacular' : 'mealdb';
-  if (!q) return res.json({ results: [], source });
+  if (!q) return res.json({ results: [] });
+  if (!spoonacular.isEnabled()) {
+    return res.status(503).json({ error: 'SPOONACULAR_API_KEY not set on server', results: [] });
+  }
   try {
-    let results;
-    if (source === 'spoonacular' && spoonacular.isEnabled()) {
-      results = await spoonacular.searchByName(q);
-    } else {
-      results = await mealdb.searchByName(q);
-    }
-    res.json({ results, source });
+    const results = await spoonacular.searchByName(q);
+    res.json({ results });
   } catch (e) {
-    res.status(502).json({ error: e.message, results: [], source });
+    res.status(502).json({ error: e.message, results: [] });
   }
 });
 
@@ -92,19 +83,17 @@ router.post('/recipes/nutrition-preview', express.json(), async (req, res) => {
 router.post('/recipes/import-online', async (req, res) => {
   const b = req.body;
   const sourceId = (b.source_id || '').toString();
-  const source = b.source === 'spoonacular' ? 'spoonacular' : 'mealdb';
   if (!sourceId) return res.redirect('/recipes');
+  if (!spoonacular.isEnabled()) {
+    return res.redirect('/recipes?import_err=' + encodeURIComponent('SPOONACULAR_API_KEY not set'));
+  }
   try {
-    const recipe = source === 'spoonacular' && spoonacular.isEnabled()
-      ? await spoonacular.lookupById(sourceId)
-      : await mealdb.lookupById(sourceId);
+    const recipe = await spoonacular.lookupById(sourceId);
     if (!recipe) return res.redirect('/recipes?import_err=not_found');
     const mealType = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].includes(b.meal_type) ? b.meal_type : recipe.meal_type;
 
-    // Spoonacular returns nutrition + price baked into the response, so most
-    // imported recipes already have those fields populated. TheMealDB returns
-    // neither — we fall back to USDA only when the source didn't already set
-    // any nutrition value.
+    // Spoonacular populates nutrition directly; only fall back to USDA on
+    // the rare recipe where their nutrient list came back empty.
     let { calories = null, protein = null, fiber = null, sugar = null, sodium = null } = recipe;
     const haveNutrition = [calories, protein, fiber, sugar, sodium].some(v => v != null);
     if (!haveNutrition) {

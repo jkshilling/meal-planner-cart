@@ -201,17 +201,27 @@ tail -f /var/log/nginx/meal-planner-cart.access.log
 tail -f /var/log/nginx/meal-planner-cart.error.log
 ```
 
-## Nutrition lookup (USDA FoodData Central)
+## Recipe search (Spoonacular)
 
-Recipes imported via "Search online" are auto-filled with calories / protein / fiber / sugar / sodium pulled from USDA FoodData Central. Per-ingredient lookups are cached in `nutrition_lookups` so each ingredient is queried once.
+The "Search online" panel on the Recipes page hits Spoonacular's `complexSearch` API. Imported recipes arrive with real per-serving nutrition (calories / protein / fiber / sugar / sodium) and per-serving cost in USD, both pulled directly from Spoonacular's response.
+
+**API key**: required. Sign up free at <https://spoonacular.com/food-api> for 150 points/day, put it in `.env` as `SPOONACULAR_API_KEY=...`. Each search costs ~1.5 points (with `addRecipeInformation+addRecipeNutrition`), each import costs ~1 point. The "Search online" feature 503s when the key is missing.
+
+## Nutrition fallback (USDA FoodData Central)
+
+USDA is the secondary nutrition source — used by:
+
+1. The "Pre-fill from USDA" button on the manual recipe form (compute nutrition for whatever ingredients you've typed).
+2. Spoonacular imports where the recipe came back without nutrient data (rare).
+
+Per-ingredient lookups are cached in `nutrition_lookups` so each unique ingredient is queried once.
 
 **API key**: `DEMO_KEY` (default in `.env.example`) is rate-limited to 30 req/hour per IP. For real use, sign up free at <https://api.data.gov/signup/> for 1,000 req/hour and put it in `.env` as `USDA_API_KEY=...`.
 
 **Honest accuracy notes**:
 - Per-100g USDA values are converted to recipe quantities via approximate volume→grams conversions. `1 cup flour ≈ 120g`, `1 cup leafy greens ≈ 30g`, etc. Generic fallback is `1 cup ≈ 240g` (water density). Real accuracy is roughly ±15–20%.
 - "Each"-style units (`1 banana`, `2 eggs`) use a small per-each weight lookup, falling back to 100g.
-- If USDA is rate-limited or doesn't have a good match for an ingredient, the import still succeeds — that ingredient's nutrition just doesn't contribute to the recipe total.
-- If at least one ingredient resolved, the recipe gets numbers; if none did, fields stay null.
+- Branded prepared meals (e.g. "CARRABBA'S ITALIAN GRILL, lasagne") and food-cut variants ("beef tenderloin" for a query of "beef") are filtered out — the matcher prefers generic raw ingredients.
 
 ## Current limitations (v1)
 

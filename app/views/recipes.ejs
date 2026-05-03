@@ -9,16 +9,10 @@
 
 <section class="card online-search-card" id="online-search-card" style="display:none">
   <h2>Search recipes online</h2>
-  <p class="muted tiny" id="online-source-blurb">
-    Spoonacular: ~360k recipes, real nutrition + cost included. TheMealDB: smaller curated set, no nutrition (we look it up via USDA).
+  <p class="muted tiny">
+    Searches Spoonacular's database of ~360k recipes. Imported recipes arrive with real nutrition and per-serving cost — edit anything you want after.
   </p>
   <div class="row" style="align-items: flex-end;">
-    <label style="flex: 0 1 auto;">Source
-      <select id="online-source">
-        <option value="spoonacular">Spoonacular (recommended)</option>
-        <option value="mealdb">TheMealDB</option>
-      </select>
-    </label>
     <input id="online-search" type="text" placeholder="e.g. chicken tikka, pancakes, carbonara" style="flex:1 1 320px" />
     <button class="btn primary" type="button" onclick="runOnlineSearch()">Search</button>
   </div>
@@ -190,19 +184,17 @@ function escapeHtml(s) {
 function runOnlineSearch() {
   var q = document.getElementById('online-search').value.trim();
   if (!q) return;
-  var source = document.getElementById('online-source').value;
   var status = document.getElementById('online-status');
   var out = document.getElementById('online-results');
-  status.textContent = 'Searching ' + source + '…';
+  status.textContent = 'Searching…';
   out.innerHTML = '';
-  fetch('/recipes/search-online?q=' + encodeURIComponent(q) + '&source=' + encodeURIComponent(source))
+  fetch('/recipes/search-online?q=' + encodeURIComponent(q))
     .then(function(r) { return r.json(); })
     .then(function(data) {
       if (data.error) { status.textContent = 'Error: ' + data.error; return; }
       var results = data.results || [];
-      var actualSource = data.source || source;
-      if (!results.length) { status.textContent = 'No matches from ' + actualSource + '.'; return; }
-      status.textContent = results.length + ' result' + (results.length === 1 ? '' : 's') + ' from ' + actualSource + ':';
+      if (!results.length) { status.textContent = 'No matches.'; return; }
+      status.textContent = results.length + ' result' + (results.length === 1 ? '' : 's') + ':';
       out.innerHTML = results.map(function(r) {
         // Spoonacular complexSearch doesn't return extendedIngredients (only
         // /information does), so search results have ingredients=[]. Show
@@ -235,7 +227,6 @@ function runOnlineSearch() {
             preview +
             '<form method="post" action="/recipes/import-online" class="online-import-form">' +
               '<input type="hidden" name="source_id" value="' + escapeHtml(r.source_id) + '" />' +
-              '<input type="hidden" name="source" value="' + escapeHtml(actualSource) + '" />' +
               '<select name="meal_type">' + options + '</select>' +
               '<button class="btn primary" type="submit">Import</button>' +
             '</form>' +
