@@ -269,9 +269,14 @@ legend {
   text-transform: uppercase;
   letter-spacing: 0.08em;
   background: #fcfaf5;
+  white-space: nowrap;
 }
 .grid-table tbody tr { transition: background 0.1s; }
 .grid-table tbody tr:hover { background: var(--cream); }
+/* Utility: prevent wrapping on small numeric/date cells (sizes, prices,
+   last-seen). Apply per-cell so long columns like product names still
+   wrap normally. */
+.grid-table td.nowrap, .grid-table th.nowrap { white-space: nowrap; }
 
 /* ============================================================
  * Tags + meal-type chips

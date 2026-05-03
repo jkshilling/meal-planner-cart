@@ -37,11 +37,10 @@
           <th></th>
           <th>Name</th>
           <th>Category</th>
-          <th>Brand</th>
-          <th>Size</th>
-          <th>Latest price</th>
-          <th>Per unit</th>
-          <th>Last seen</th>
+          <th class="nowrap">Size</th>
+          <th class="nowrap">Latest price</th>
+          <th class="nowrap">Per unit</th>
+          <th class="nowrap">Last seen</th>
         </tr>
       </thead>
       <tbody>
@@ -61,11 +60,10 @@
             </td>
             <td><a href="/grocery/products/<%= p.id %>"><%= p.name %></a></td>
             <td class="muted small"><%= p.category || '' %></td>
-            <td><%= p.brand || '' %></td>
-            <td><%= p.size_text || '' %></td>
-            <td><%= p.latest_price != null ? '$' + p.latest_price.toFixed(2) : '' %></td>
-            <td class="muted small"><%= p.unit_price || '' %></td>
-            <td class="muted small"><%= formatDate(p.last_seen_at) %></td>
+            <td class="nowrap"><%= p.size_text || '' %></td>
+            <td class="nowrap"><%= p.latest_price != null ? '$' + p.latest_price.toFixed(2) : '' %></td>
+            <td class="muted small nowrap"><%= p.unit_price || '' %></td>
+            <td class="muted small nowrap"><%= formatDate(p.last_seen_at) %></td>
           </tr>
         <% }) %>
       </tbody>
