@@ -41,28 +41,56 @@ router.get('/grocery', (req, res) => {
 
 router.get('/grocery/products', (req, res) => {
   const q = (req.query.q || '').toString().trim();
-  let rows;
+  const favoritesOnly = req.query.favorites === '1';
+  // Brand isn't currently populated by the food-buyer extension, so the
+  // search only filters by name. Brand column stays in the table for if/when
+  // we start extracting it.
+  const where = [];
+  const params = [];
   if (q) {
     const like = '%' + q.replace(/%/g, '') + '%';
-    // Brand isn't currently populated by the food-buyer extension, so the
-    // search only filters by name. Brand column stays in the table for if/when
-    // we start extracting it.
-    rows = db.prepare(`
-      SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at, last_seen_at, image_url
-        FROM walmart_products
-       WHERE name LIKE ?
-    ORDER BY last_seen_at DESC
-       LIMIT 200
-    `).all(like);
-  } else {
-    rows = db.prepare(`
-      SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at, last_seen_at, image_url
-        FROM walmart_products
-    ORDER BY last_seen_at DESC
-       LIMIT 200
-    `).all();
+    where.push('name LIKE ?');
+    params.push(like);
   }
-  res.render('grocery_products', { title: 'Products', rows, q });
+  if (favoritesOnly) where.push('is_favorite = 1');
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
+  // Sort favorites first so they're visually surfaced even when the user
+  // isn't filtering. Within each tier, freshest first.
+  const rows = db.prepare(`
+    SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at,
+           last_seen_at, image_url, is_favorite
+      FROM walmart_products
+      ${whereSql}
+  ORDER BY is_favorite DESC, last_seen_at DESC
+     LIMIT 200
+  `).all(...params);
+  const favoriteCount = db.prepare('SELECT COUNT(*) AS n FROM walmart_products WHERE is_favorite = 1').get().n;
+  res.render('grocery_products', { title: 'Products', rows, q, favoritesOnly, favoriteCount });
+});
+
+// Toggle a product's favorite flag. Used by the star button in the catalog
+// table. Idempotent: re-clicking flips back to non-favorite.
+router.post('/grocery/products/:id/favorite', (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (!Number.isInteger(id)) return res.redirect('/grocery/products');
+  db.prepare('UPDATE walmart_products SET is_favorite = 1 - is_favorite WHERE id = ?').run(id);
+  // Bounce back to wherever they came from so the search/filter state is preserved.
+  const back = req.get('referer') || '/grocery/products';
+  res.redirect(back);
+});
+
+// JSON endpoint the food-buyer extension can poll to learn which products
+// the user has favorited. Returns just enough data for the extension to
+// match against Walmart search results (URL or item ID) — keeps payload
+// small and avoids leaking internal IDs.
+router.get('/grocery/favorites.json', (req, res) => {
+  const rows = db.prepare(`
+    SELECT walmart_item_id, product_url, name
+      FROM walmart_products
+     WHERE is_favorite = 1
+  ORDER BY last_seen_at DESC
+  `).all();
+  res.json({ favorites: rows });
 });
 
 router.get('/grocery/products/:id', (req, res) => {

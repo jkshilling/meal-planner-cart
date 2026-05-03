@@ -1,12 +1,17 @@
 <%- include('partials/header') %>
-<h1>Products</h1>
+<h1>Products <span class="count-badge"><%= rows.length %></span></h1>
 
 <form method="get" action="/grocery/products" class="card">
   <label>Search by name
     <input name="q" value="<%= q %>" placeholder="bread, milk, broccoli..." style="min-width: 260px" />
   </label>
+  <label class="inline" style="margin-left: 12px;">
+    <input type="checkbox" name="favorites" value="1" <%= favoritesOnly ? 'checked' : '' %>
+           onchange="this.form.submit()" />
+    favorites only <% if (favoriteCount) { %><span class="muted tiny">(<%= favoriteCount %>)</span><% } %>
+  </label>
   <button class="btn primary" type="submit">Search</button>
-  <% if (q) { %><a class="btn" href="/grocery/products">Clear</a><% } %>
+  <% if (q || favoritesOnly) { %><a class="btn" href="/grocery/products">Clear</a><% } %>
 </form>
 
 <div class="card">
@@ -16,6 +21,7 @@
     <table class="grid-table">
       <thead>
         <tr>
+          <th style="width:24px"></th>
           <th></th>
           <th>Name</th>
           <th>Brand</th>
@@ -28,6 +34,15 @@
       <tbody>
         <% rows.forEach(function(p) { %>
           <tr>
+            <td class="fav-cell">
+              <form method="post" action="/grocery/products/<%= p.id %>/favorite" style="display:inline">
+                <button class="fav-btn <%= p.is_favorite ? 'on' : '' %>"
+                        type="submit"
+                        title="<%= p.is_favorite ? 'unfavorite' : 'favorite — extension will prefer this product' %>">
+                  <%= p.is_favorite ? '★' : '☆' %>
+                </button>
+              </form>
+            </td>
             <td>
               <% if (p.image_url) { %><img src="<%= p.image_url %>" alt="" style="width:40px;height:40px;object-fit:contain"/><% } %>
             </td>
@@ -43,4 +58,11 @@
     </table>
   <% } %>
 </div>
+
+<% if (favoriteCount) { %>
+  <p class="muted tiny">
+    Favorites are exposed at <code>/grocery/favorites.json</code> for the
+    food-buyer extension to bias its product picks.
+  </p>
+<% } %>
 <%- include('partials/footer') %>

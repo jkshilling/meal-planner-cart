@@ -155,6 +155,9 @@ CREATE TABLE IF NOT EXISTS walmart_products (
   fiber REAL,
   sugar REAL,
   sodium REAL,
+  -- User-marked favorite. Read by the food-buyer extension to bias its
+  -- product picking when scanning Walmart search results.
+  is_favorite INTEGER NOT NULL DEFAULT 0,
   first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -253,6 +256,8 @@ ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAUL
 // Per-unit price string from the search card ("$9.88/lb"). Stored verbatim;
 // catalog UI displays as-is. Nullable because not every product card has it.
 ensureColumn('walmart_products', 'unit_price', 'TEXT');
+// User-marked favorite — read by the food-buyer extension to bias picks.
+ensureColumn('walmart_products', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json
