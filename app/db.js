@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS household_profiles (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
+  -- Scoping: NULL means "orphaned, awaiting claim" — only happens for
+  -- pre-auth profiles in databases that existed before commit 1. New
+  -- signups always create a profile with a non-null user_id. Commit 5
+  -- enforces NOT NULL once routes are fully gated.
+  user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
   name TEXT NOT NULL DEFAULT 'Household',
   budget_weekly REAL NOT NULL DEFAULT 150,
   optimization_mode TEXT NOT NULL DEFAULT 'lowest_cost',
@@ -285,6 +290,9 @@ ensureColumn('walmart_products', 'unit_price', 'TEXT');
 ensureColumn('walmart_products', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
 // Coarse grocery category, derived from product name at ingest time.
 ensureColumn('walmart_products', 'category', 'TEXT');
+// User scoping for households. NULL means "orphaned, claimable on first
+// signup" — see services/household.claimOrphanedHouseholds().
+ensureColumn('household_profiles', 'user_id', 'INTEGER REFERENCES users(id) ON DELETE CASCADE');
 // The brand column was added speculatively for an extension feature that
 // never landed. Always null in practice. Dropped to clean up the schema.
 dropColumnIfExists('walmart_products', 'brand');

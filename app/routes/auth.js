@@ -6,6 +6,7 @@
 
 const express = require('express');
 const auth = require('../services/auth');
+const household = require('../services/household');
 
 const router = express.Router();
 
@@ -101,6 +102,14 @@ router.post('/signup', async (req, res) => {
   } catch (e) {
     inlineError(res, 'Could not create account: ' + e.message);
     return res.render('signup', { title: 'Create account', email });
+  }
+
+  // Provision a household for the new user. If the database has orphaned
+  // pre-auth data and this user's email matches BOOTSTRAP_OWNER_EMAIL (or
+  // the env var is unset), claim it. Otherwise create a fresh household.
+  const claimed = household.claimOrphanedHouseholds(user.id, user.email);
+  if (claimed === 0) {
+    household.createHouseholdForUser(user.id);
   }
 
   req.session.regenerate((err) => {
