@@ -100,6 +100,73 @@
   <% } %>
 </div>
 
+<div class="card" id="invites">
+  <h2>Invite codes</h2>
+  <p class="muted">
+    Signup is invite-only. Mint a code below and send it to whoever you
+    want to invite — they'll need it to create an account at
+    <code>/signup</code>. Codes are single-use; once consumed, the row
+    stays as an audit trail of who invited whom.
+  </p>
+
+  <% if (inviteCreated) { %>
+    <div class="flash success">
+      New invite code minted:
+      <code style="user-select: all; padding: 4px 8px; background: #f4f4f4; border-radius: 4px; font-size: 14px; font-weight: 600;"><%= inviteCreated %></code>
+      &nbsp;Copy it now; it will show in the list below masked after this page reload.
+    </div>
+  <% } %>
+  <% if (inviteRevoked) { %>
+    <div class="flash">Invite code revoked.</div>
+  <% } %>
+
+  <form method="post" action="/settings/invites/create" class="row" style="gap: 8px; align-items: center; margin-bottom: 12px;">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+    <input name="label" placeholder="Label (optional, e.g. 'Alice')" maxlength="80" style="min-width: 240px;" />
+    <button class="btn primary" type="submit">Mint invite code</button>
+  </form>
+
+  <% if (inviteCodes && inviteCodes.length) { %>
+    <table class="grid-table">
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Label</th>
+          <th>Status</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% inviteCodes.forEach(function(c) { %>
+          <tr>
+            <td><code><%= c.used_at ? '••••••••' + c.code.slice(-4) : c.code %></code></td>
+            <td><%= c.label || '' %></td>
+            <td>
+              <% if (c.used_at) { %>
+                <span class="muted small">used <%= formatDate(c.used_at) %></span>
+              <% } else { %>
+                <span class="muted small">unused</span>
+              <% } %>
+            </td>
+            <td class="muted small"><%= formatDate(c.created_at) %></td>
+            <td>
+              <% if (!c.used_at) { %>
+                <form method="post" action="/settings/invites/<%= c.id %>/revoke" style="display:inline" onsubmit="return confirm('Revoke this invite code?');">
+                  <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                  <button class="link delete-link" type="submit">revoke</button>
+                </form>
+              <% } %>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } else { %>
+    <p class="muted">No codes yet.</p>
+  <% } %>
+</div>
+
 <script>
 function addMember() {
   var tbody = document.getElementById('members');

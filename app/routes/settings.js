@@ -3,6 +3,7 @@ const db = require('../db');
 const { loadProfile } = require('../services/planner');
 const groceryToken = require('../services/grocery_token');
 const household = require('../services/household');
+const invites = require('../services/invites');
 const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
@@ -22,13 +23,34 @@ router.get('/settings', requireAuth, (req, res) => {
     profile,
     saved: req.query.saved === '1',
     groceryToken: groceryToken.ensureForUser(uid),
-    tokenRotated: req.query.tokenRotated === '1'
+    tokenRotated: req.query.tokenRotated === '1',
+    inviteCodes: invites.listByCreator(uid),
+    inviteCreated: req.query.inviteCreated || null,
+    inviteRevoked: req.query.inviteRevoked === '1'
   });
 });
 
 router.post('/settings/grocery-token/rotate', requireAuth, (req, res) => {
   groceryToken.rotateForUser(userIdOf(req));
   res.redirect('/settings?tokenRotated=1#grocery-extension');
+});
+
+// Mint a new single-use invite code. Optional label so the inviter can
+// remember who it was for. Redirects with the new code in the query so it
+// shows once on the settings page (the user copy/pastes from there).
+router.post('/settings/invites/create', requireAuth, (req, res) => {
+  const label = (req.body.label || '').toString().trim().slice(0, 80);
+  const { code } = invites.create({ createdByUserId: userIdOf(req), label: label || null });
+  res.redirect('/settings?inviteCreated=' + encodeURIComponent(code) + '#invites');
+});
+
+// Revoke an unused invite. No-op on used codes (those stay as audit trail).
+router.post('/settings/invites/:id/revoke', requireAuth, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (Number.isInteger(id)) {
+    invites.revoke({ id, createdByUserId: userIdOf(req) });
+  }
+  res.redirect('/settings?inviteRevoked=1#invites');
 });
 
 router.post('/settings', requireAuth, (req, res) => {

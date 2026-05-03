@@ -259,6 +259,26 @@ CREATE TABLE IF NOT EXISTS grocery_searches (
 
 CREATE INDEX IF NOT EXISTS idx_grocery_searches_query ON grocery_searches(query);
 CREATE INDEX IF NOT EXISTS idx_grocery_searches_searched_at ON grocery_searches(searched_at);
+
+-- Single-use signup invite codes. /signup rejects anyone who can't present
+-- an unused code. Codes are minted by an authed user from their settings
+-- page; their user_id goes into created_by_user_id so we can audit who
+-- invited whom. used_at + used_by_user_id stamp on consumption.
+CREATE TABLE IF NOT EXISTS invite_codes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT NOT NULL UNIQUE,
+  -- Free-text label so the inviter can remember who they meant the code for
+  -- ("Alice", "team test"). Optional; just for display.
+  label TEXT,
+  created_by_user_id INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  used_at TEXT,
+  used_by_user_id INTEGER,
+  FOREIGN KEY (created_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
+  FOREIGN KEY (used_by_user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_invite_codes_unused ON invite_codes(code) WHERE used_at IS NULL;
 `;
 
 db.exec(SCHEMA);

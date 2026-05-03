@@ -5,8 +5,15 @@
   <section class="card">
     <form method="post" action="/signup" class="stack">
       <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+      <label>Invite code
+        <input name="invite" required autofocus
+               value="<%= typeof invite !== 'undefined' ? invite : '' %>"
+               placeholder="ABCD23EF45GH"
+               style="font-family: ui-monospace, monospace; letter-spacing: 0.04em;" />
+        <span class="muted tiny">You need a code from someone who already has an account.</span>
+      </label>
       <label>Email
-        <input type="email" name="email" required autofocus
+        <input type="email" name="email" required
                value="<%= email %>" autocomplete="email" />
       </label>
       <label>Password

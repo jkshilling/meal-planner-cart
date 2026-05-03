@@ -8,6 +8,7 @@ const express = require('express');
 const rateLimit = require('express-rate-limit');
 const auth = require('../services/auth');
 const household = require('../services/household');
+const invites = require('../services/invites');
 
 const router = express.Router();
 
@@ -119,37 +120,51 @@ router.post('/login', loginLimiter, async (req, res) => {
 
 router.get('/signup', (req, res) => {
   if (req.session && req.session.user) return res.redirect('/');
-  res.render('signup', { title: 'Create account', email: '' });
+  // ?invite=CODE pre-fills the invite field so the inviter can share a deep
+  // link instead of asking the recipient to copy a code by hand.
+  const invite = (req.query.invite || '').toString().toUpperCase().slice(0, invites.CODE_LEN);
+  res.render('signup', { title: 'Create account', email: '', invite });
 });
 
 router.post('/signup', signupLimiter, async (req, res) => {
   const email = (req.body.email || '').toString();
   const password = (req.body.password || '').toString();
   const confirm = (req.body.confirm || '').toString();
+  const invite = (req.body.invite || '').toString();
 
-  if (!auth.isValidEmail(email)) {
-    inlineError(res, 'Enter a valid email address.');
-    return res.render('signup', { title: 'Create account', email });
-  }
+  // Helper that re-renders the signup form with the same invite + email so
+  // the user doesn't have to retype either after a validation error.
+  const reshow = (msg) => {
+    inlineError(res, msg);
+    return res.render('signup', { title: 'Create account', email, invite });
+  };
+
+  if (!invite.trim()) return reshow('An invite code is required.');
+  if (!auth.isValidEmail(email)) return reshow('Enter a valid email address.');
   if (!auth.isValidPassword(password)) {
-    inlineError(res, `Password must be at least ${auth.MIN_PASSWORD_LEN} characters.`);
-    return res.render('signup', { title: 'Create account', email });
+    return reshow(`Password must be at least ${auth.MIN_PASSWORD_LEN} characters.`);
   }
-  if (password !== confirm) {
-    inlineError(res, 'Passwords do not match.');
-    return res.render('signup', { title: 'Create account', email });
-  }
+  if (password !== confirm) return reshow('Passwords do not match.');
   if (auth.findUserByEmail(email)) {
-    inlineError(res, 'That email is already registered. Try signing in.');
-    return res.render('signup', { title: 'Create account', email });
+    return reshow('That email is already registered. Try signing in.');
   }
 
+  // Create the user FIRST, then atomically consume the invite. If the
+  // invite turns out to be invalid we delete the user. We do it in this
+  // order rather than the reverse because consume() needs the new user_id
+  // to attribute the consumption (used_by_user_id).
   let user;
   try {
     user = await auth.createUser(email, password);
   } catch (e) {
-    inlineError(res, 'Could not create account: ' + e.message);
-    return res.render('signup', { title: 'Create account', email });
+    return reshow('Could not create account: ' + e.message);
+  }
+
+  const consumed = invites.consume({ presented: invite, userId: user.id });
+  if (!consumed) {
+    // Roll back the user creation and ask for a fresh code.
+    require('../db').prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    return reshow('That invite code is invalid or has already been used.');
   }
 
   // Provision a household for the new user. If the database has orphaned
