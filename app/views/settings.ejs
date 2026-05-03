@@ -54,11 +54,17 @@
           <th>Lunch</th>
           <th>Snack</th>
           <th>Dinner</th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="members">
-        <% rows.forEach(function(m) { var mb = m.meal_behavior || defaultBehavior; %>
-          <tr>
+        <% rows.forEach(function(m, ix) {
+             var mb = m.meal_behavior || defaultBehavior;
+             var allergies = (m.allergies || []).join(', ');
+             var dietary   = (m.dietary   || []).join(', ');
+             var dislikes  = (m.dislikes  || []).join(', ');
+        %>
+          <tr class="member-row">
             <td><input name="member_name" value="<%= m.name %>" /></td>
             <td><select name="member_label">
               <option value="adult" <%= m.label==='adult' ? 'selected' : '' %>>adult</option>
@@ -72,20 +78,33 @@
                 <option value="skip"   <%= mb[meal]==='skip'   ? 'selected' : '' %>>skip</option>
               </select></td>
             <% }) %>
+            <td><button type="button" class="link member-prefs-toggle" onclick="togglePrefs(this)" aria-expanded="false">Preferences ▸</button></td>
+          </tr>
+          <tr class="member-prefs" hidden>
+            <td colspan="7">
+              <div class="row" style="gap: 12px;">
+                <label style="flex: 1 1 200px;">Allergies
+                  <input name="member_allergies" value="<%= allergies %>" placeholder="peanut, shellfish" />
+                </label>
+                <label style="flex: 1 1 200px;">Dietary constraints
+                  <input name="member_dietary" value="<%= dietary %>" placeholder="vegetarian, gluten-free" />
+                </label>
+                <label style="flex: 1 1 200px;">Disliked ingredients
+                  <input name="member_dislikes" value="<%= dislikes %>" placeholder="mushroom, cilantro" />
+                </label>
+              </div>
+              <p class="muted tiny" style="margin: 4px 0 0;">Comma-separated. Each is a hard filter for any meal this person eats — recipes containing the listed items are skipped for slots where this person is set to <em>plan</em>.</p>
+              <% if (rows.length > 1 && ix > 0) { %>
+                <p class="muted tiny" style="margin: 6px 0 0;">
+                  <button type="button" class="link" onclick="copyPrefsFromFirst(this)">Copy preferences from <%= rows[0].name || 'first member' %></button>
+                </p>
+              <% } %>
+            </td>
           </tr>
         <% }) %>
       </tbody>
     </table>
     <button type="button" class="btn" onclick="addMember()">Add member</button>
-  </div>
-
-  <div class="card">
-    <h2>Preferences</h2>
-    <label>Dietary constraints (comma separated) <input name="dietary_constraints" value="<%= JSON.parse(profile.dietary_constraints_json).join(', ') %>" placeholder="vegetarian, gluten-free" /></label>
-    <label>Allergies <input name="allergies" value="<%= JSON.parse(profile.allergies_json).join(', ') %>" placeholder="peanut, shellfish" /></label>
-    <label>Disliked ingredients <input name="disliked_ingredients" value="<%= JSON.parse(profile.disliked_ingredients_json).join(', ') %>" /></label>
-    <label>Favorite meal keywords <input name="favorite_meals" value="<%= JSON.parse(profile.favorite_meals_json).join(', ') %>" placeholder="tacos, pasta" /></label>
-    <label>Preferred cuisines <input name="preferred_cuisines" value="<%= JSON.parse(profile.preferred_cuisines_json).join(', ') %>" placeholder="italian, mexican" /></label>
   </div>
 
   <button class="btn primary" type="submit">Save settings</button>
@@ -186,20 +205,67 @@
 </div>
 
 <script>
+function mealCell(meal) {
+  return '<td><select name="member_' + meal + '">' +
+    '<option value="plan">plan</option>' +
+    '<option value="school">school</option>' +
+    '<option value="skip">skip</option>' +
+    '</select></td>';
+}
+
+// Each member is a pair of <tr>: the visible row of selects, then a hidden
+// row for allergies/dietary/dislikes that the "Preferences ▸" button reveals.
+// togglePrefs walks from the clicked button to the next sibling row.
+function togglePrefs(btn) {
+  var row = btn.closest('tr');
+  var prefs = row && row.nextElementSibling;
+  if (!prefs || !prefs.classList.contains('member-prefs')) return;
+  var open = !prefs.hidden;
+  prefs.hidden = open;
+  btn.setAttribute('aria-expanded', String(!open));
+  btn.textContent = open ? 'Preferences ▸' : 'Preferences ▾';
+}
+
 function addMember() {
   var tbody = document.getElementById('members');
   var tr = document.createElement('tr');
-  function mealCell(meal) {
-    return '<td><select name="member_' + meal + '">' +
-      '<option value="plan">plan</option>' +
-      '<option value="school">school</option>' +
-      '<option value="skip">skip</option>' +
-      '</select></td>';
-  }
+  tr.className = 'member-row';
   tr.innerHTML = '<td><input name="member_name"/></td>' +
     '<td><select name="member_label"><option value="adult">adult</option><option value="child">child</option><option value="teen">teen</option></select></td>' +
-    mealCell('breakfast') + mealCell('lunch') + mealCell('snack') + mealCell('dinner');
+    mealCell('breakfast') + mealCell('lunch') + mealCell('snack') + mealCell('dinner') +
+    '<td><button type="button" class="link member-prefs-toggle" onclick="togglePrefs(this)" aria-expanded="false">Preferences ▸</button></td>';
   tbody.appendChild(tr);
+  var prefs = document.createElement('tr');
+  prefs.className = 'member-prefs';
+  prefs.hidden = true;
+  prefs.innerHTML =
+    '<td colspan="7">' +
+      '<div class="row" style="gap: 12px;">' +
+        '<label style="flex: 1 1 200px;">Allergies <input name="member_allergies" placeholder="peanut, shellfish" /></label>' +
+        '<label style="flex: 1 1 200px;">Dietary constraints <input name="member_dietary" placeholder="vegetarian, gluten-free" /></label>' +
+        '<label style="flex: 1 1 200px;">Disliked ingredients <input name="member_dislikes" placeholder="mushroom, cilantro" /></label>' +
+      '</div>' +
+      '<p class="muted tiny" style="margin: 6px 0 0;">' +
+        '<button type="button" class="link" onclick="copyPrefsFromFirst(this)">Copy preferences from first member</button>' +
+      '</p>' +
+    '</td>';
+  tbody.appendChild(prefs);
+}
+
+// Copy allergies/dietary/dislikes from the first member's row into the row
+// where the button was clicked. Cheap "everyone has the same constraints"
+// shortcut so users don't retype for shared-household setups.
+function copyPrefsFromFirst(btn) {
+  var allPrefs = document.querySelectorAll('#members .member-prefs');
+  if (allPrefs.length < 2) return;
+  var src = allPrefs[0];
+  var dst = btn.closest('tr.member-prefs');
+  if (!src || !dst || src === dst) return;
+  ['member_allergies', 'member_dietary', 'member_dislikes'].forEach(function(n) {
+    var s = src.querySelector('input[name="' + n + '"]');
+    var d = dst.querySelector('input[name="' + n + '"]');
+    if (s && d) d.value = s.value;
+  });
 }
 </script>
 <%- include('partials/footer') %>

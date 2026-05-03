@@ -35,11 +35,10 @@ CREATE TABLE IF NOT EXISTS household_profiles (
   -- Which meal slots get a paired side recipe attached. e.g. ["dinner"] or
   -- ["lunch","dinner"]. Empty array disables side pairing entirely.
   pair_sides_with_json TEXT NOT NULL DEFAULT '["dinner"]',
-  dietary_constraints_json TEXT NOT NULL DEFAULT '[]',
-  allergies_json TEXT NOT NULL DEFAULT '[]',
-  disliked_ingredients_json TEXT NOT NULL DEFAULT '[]',
-  favorite_meals_json TEXT NOT NULL DEFAULT '[]',
-  preferred_cuisines_json TEXT NOT NULL DEFAULT '[]',
+  -- (allergies, dietary constraints, disliked ingredients moved to
+  -- household_members — see meal_behavior_json's neighbor columns. The
+  -- old favorite_meals and preferred_cuisines fields were retired
+  -- entirely; per-recipe favorite stars cover the same ground better.)
   active INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -55,6 +54,16 @@ CREATE TABLE IF NOT EXISTS household_members (
   -- the planner treats them identically. dinersFor(profile, mealType) counts
   -- only members whose value for that meal_type is 'plan'.
   meal_behavior_json TEXT NOT NULL DEFAULT '{"breakfast":"plan","lunch":"plan","snack":"plan","dinner":"plan"}',
+  -- Per-member hard-filter preferences. Aggregated across the diners for
+  -- each slot in services/planner.recipePassesFiltersForSlot:
+  --   allergies — union (recipe rejected if it contains any diner's allergen)
+  --   dietary   — union (recipe must satisfy every diner's diet, e.g. one
+  --               vegetarian diner forces the slot to be vegetarian)
+  --   dislikes  — union (recipe rejected if it contains any diner's dislike)
+  -- Each is a JSON array of lowercase strings.
+  allergies_json TEXT NOT NULL DEFAULT '[]',
+  dietary_constraints_json TEXT NOT NULL DEFAULT '[]',
+  disliked_ingredients_json TEXT NOT NULL DEFAULT '[]',
   FOREIGN KEY (profile_id) REFERENCES household_profiles(id) ON DELETE CASCADE
 );
 
@@ -369,6 +378,64 @@ ensureColumn(
   }
 }
 dropColumnIfExists('household_members', 'lunch_behavior');
+
+// Per-member preferences migration. The old household-level columns
+// (allergies, dietary, dislikes) are being moved per-member so the planner
+// can apply them only to slots where the affected member actually eats.
+// Backfill strategy: every existing member of a profile inherits that
+// profile's existing values verbatim — preserves current planner behavior
+// (everyone treated as if they had the household's constraints) until the
+// user splits them apart in the settings UI. After backfill the
+// household-level columns are dropped, along with two retired soft-boost
+// fields (favorite_meals_json + preferred_cuisines_json — keyword-favorites
+// duplicate the per-recipe favorite star, and preferred-cuisines averaged
+// across an unaverageable household was always a fiction).
+ensureColumn('household_members', 'allergies_json',           `TEXT NOT NULL DEFAULT '[]'`);
+ensureColumn('household_members', 'dietary_constraints_json', `TEXT NOT NULL DEFAULT '[]'`);
+ensureColumn('household_members', 'disliked_ingredients_json',`TEXT NOT NULL DEFAULT '[]'`);
+{
+  const profileCols = db.prepare('PRAGMA table_info(household_profiles)').all().map(c => c.name);
+  // Only backfill while the legacy household-level columns still exist.
+  if (
+    profileCols.includes('allergies_json') ||
+    profileCols.includes('dietary_constraints_json') ||
+    profileCols.includes('disliked_ingredients_json')
+  ) {
+    // Pull each row explicitly so we can per-field guard against missing
+    // columns on weirdly-half-migrated databases.
+    const select = `
+      SELECT id,
+             ${profileCols.includes('allergies_json')           ? 'allergies_json'           : "'[]' AS allergies_json"},
+             ${profileCols.includes('dietary_constraints_json') ? 'dietary_constraints_json' : "'[]' AS dietary_constraints_json"},
+             ${profileCols.includes('disliked_ingredients_json')? 'disliked_ingredients_json': "'[]' AS disliked_ingredients_json"}
+        FROM household_profiles
+    `;
+    const profiles = db.prepare(select).all();
+    const update = db.prepare(`
+      UPDATE household_members
+         SET allergies_json            = COALESCE(NULLIF(allergies_json,            '[]'), ?),
+             dietary_constraints_json  = COALESCE(NULLIF(dietary_constraints_json,  '[]'), ?),
+             disliked_ingredients_json = COALESCE(NULLIF(disliked_ingredients_json, '[]'), ?)
+       WHERE profile_id = ?
+    `);
+    const tx = db.transaction(() => {
+      for (const p of profiles) {
+        update.run(
+          p.allergies_json           || '[]',
+          p.dietary_constraints_json || '[]',
+          p.disliked_ingredients_json|| '[]',
+          p.id
+        );
+      }
+    });
+    tx();
+  }
+}
+dropColumnIfExists('household_profiles', 'allergies_json');
+dropColumnIfExists('household_profiles', 'dietary_constraints_json');
+dropColumnIfExists('household_profiles', 'disliked_ingredients_json');
+dropColumnIfExists('household_profiles', 'favorite_meals_json');
+dropColumnIfExists('household_profiles', 'preferred_cuisines_json');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json

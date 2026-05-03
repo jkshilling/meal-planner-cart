@@ -58,6 +58,9 @@ router.post('/settings', requireAuth, (req, res) => {
   const p = household.profileForUser(uid);
   if (!p) return res.status(500).render('error', { title: 'No household', message: 'No household found.' });
   const body = req.body;
+  // Parse a comma-separated text input into a JSON array of trimmed strings.
+  // Accepts either an array (rare; some browsers send multiple inputs) or a
+  // single comma-joined string (the common case for our settings form).
   const toJSONList = (v) => {
     if (Array.isArray(v)) return JSON.stringify(v.filter(Boolean));
     if (typeof v === 'string') return JSON.stringify(v.split(',').map(s => s.trim()).filter(Boolean));
@@ -73,8 +76,7 @@ router.post('/settings', requireAuth, (req, res) => {
   // scopes by user_id.
   db.prepare(`UPDATE household_profiles SET
     name = ?, budget_weekly = ?, optimization_mode = ?, breakfast_simplicity = ?, max_prep_time = ?,
-    meal_types_json = ?, pair_sides_with_json = ?, dietary_constraints_json = ?, allergies_json = ?,
-    disliked_ingredients_json = ?, favorite_meals_json = ?, preferred_cuisines_json = ?
+    meal_types_json = ?, pair_sides_with_json = ?
     WHERE id = ? AND user_id = ?`)
     .run(
       body.name || 'Household',
@@ -84,19 +86,15 @@ router.post('/settings', requireAuth, (req, res) => {
       parseInt(body.max_prep_time, 10) || 45,
       JSON.stringify(mealTypes.length ? mealTypes : ['dinner']),
       JSON.stringify(pairSidesWith),
-      toJSONList(body.dietary_constraints),
-      toJSONList(body.allergies),
-      toJSONList(body.disliked_ingredients),
-      toJSONList(body.favorite_meals),
-      toJSONList(body.preferred_cuisines),
       p.id,
       uid
     );
 
-  // Members: replace with submitted set. Form gives us four parallel arrays
-  // for per-meal behavior (member_breakfast, member_lunch, member_snack,
-  // member_dinner), each one entry per row in the table. We collapse them
-  // into a single meal_behavior_json per member.
+  // Members: replace with submitted set. Form arrays we collect per row:
+  //   member_name, member_label
+  //   member_breakfast / lunch / snack / dinner   (plan|school|skip)
+  //   member_allergies / member_dietary / member_dislikes  (CSV strings)
+  // Each is an N-length array (or single value, which Array.concat normalizes).
   db.prepare('DELETE FROM household_members WHERE profile_id = ?').run(p.id);
   const names = [].concat(body.member_name || []);
   const labels = [].concat(body.member_label || []);
@@ -104,25 +102,40 @@ router.post('/settings', requireAuth, (req, res) => {
   const lunches    = [].concat(body.member_lunch     || []);
   const snacks     = [].concat(body.member_snack     || []);
   const dinners    = [].concat(body.member_dinner    || []);
-  const insertMember = db.prepare(
-    'INSERT INTO household_members (profile_id, name, label, meal_behavior_json) VALUES (?, ?, ?, ?)'
-  );
-  const sanitize = (v) => (['plan', 'school', 'skip'].includes(v) ? v : 'plan');
+  const allergies  = [].concat(body.member_allergies || []);
+  const dietary    = [].concat(body.member_dietary   || []);
+  const dislikes   = [].concat(body.member_dislikes  || []);
+  const insertMember = db.prepare(`
+    INSERT INTO household_members
+      (profile_id, name, label, meal_behavior_json,
+       allergies_json, dietary_constraints_json, disliked_ingredients_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  const sanitizeBehavior = (v) => (['plan', 'school', 'skip'].includes(v) ? v : 'plan');
   const mealBehaviorAt = (i) => JSON.stringify({
-    breakfast: sanitize(breakfasts[i]),
-    lunch:     sanitize(lunches[i]),
-    snack:     sanitize(snacks[i]),
-    dinner:    sanitize(dinners[i])
+    breakfast: sanitizeBehavior(breakfasts[i]),
+    lunch:     sanitizeBehavior(lunches[i]),
+    snack:     sanitizeBehavior(snacks[i]),
+    dinner:    sanitizeBehavior(dinners[i])
   });
   for (let i = 0; i < names.length; i++) {
     const name = (names[i] || '').trim();
     if (!name) continue;
-    insertMember.run(p.id, name, labels[i] || 'adult', mealBehaviorAt(i));
+    insertMember.run(
+      p.id,
+      name,
+      labels[i] || 'adult',
+      mealBehaviorAt(i),
+      toJSONList(allergies[i] || ''),
+      toJSONList(dietary[i]   || ''),
+      toJSONList(dislikes[i]  || '')
+    );
   }
   if (!names.filter(n => n && n.trim()).length) {
     insertMember.run(
       p.id, 'Me', 'adult',
-      JSON.stringify({ breakfast: 'plan', lunch: 'plan', snack: 'plan', dinner: 'plan' })
+      JSON.stringify({ breakfast: 'plan', lunch: 'plan', snack: 'plan', dinner: 'plan' }),
+      '[]', '[]', '[]'
     );
   }
 

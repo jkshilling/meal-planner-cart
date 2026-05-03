@@ -13,21 +13,20 @@ function loadProfile(profileId) {
   const profile = db.prepare('SELECT * FROM household_profiles WHERE id = ?').get(profileId);
   if (!profile) return null;
   profile.members = db.prepare('SELECT * FROM household_members WHERE profile_id = ?').all(profileId);
-  // Parse per-member meal behavior; fall back to "plan everything" if the
-  // JSON is malformed or missing keys (e.g. row migrated from an old schema
-  // where some meal types weren't represented).
+  // Parse per-member fields. meal_behavior is the per-meal-type plan/school/skip
+  // map. allergies/dietary/dislikes are hard-filter lists, used by
+  // recipePassesFiltersForSlot to reject recipes for slots where any diner
+  // has the constraint.
   for (const m of profile.members) {
-    const parsed = parseJSON(m.meal_behavior_json, {});
-    m.meal_behavior = { ...DEFAULT_MEAL_BEHAVIOR, ...parsed };
+    const parsedBehavior = parseJSON(m.meal_behavior_json, {});
+    m.meal_behavior = { ...DEFAULT_MEAL_BEHAVIOR, ...parsedBehavior };
+    m.allergies = parseJSON(m.allergies_json, []).map(s => String(s).toLowerCase());
+    m.dietary   = parseJSON(m.dietary_constraints_json, []).map(s => String(s).toLowerCase());
+    m.dislikes  = parseJSON(m.disliked_ingredients_json, []).map(s => String(s).toLowerCase());
   }
   profile.meal_types = parseJSON(profile.meal_types_json, ['breakfast', 'lunch', 'snack', 'dinner'])
     .filter(t => t !== 'side');  // 'side' is no longer a slot type — paired with mains instead
   profile.pair_sides_with = parseJSON(profile.pair_sides_with_json, ['dinner']);
-  profile.dietary = parseJSON(profile.dietary_constraints_json, []).map(s => s.toLowerCase());
-  profile.allergies = parseJSON(profile.allergies_json, []).map(s => s.toLowerCase());
-  profile.dislikes = parseJSON(profile.disliked_ingredients_json, []).map(s => s.toLowerCase());
-  profile.favorites = parseJSON(profile.favorite_meals_json, []).map(s => s.toLowerCase());
-  profile.preferred_cuisines = parseJSON(profile.preferred_cuisines_json, []).map(s => s.toLowerCase());
   return profile;
 }
 
@@ -65,29 +64,63 @@ function loadRecipes(userId) {
   return recipes;
 }
 
-function recipePassesHardFilters(recipe, profile) {
-  const ingNames = recipe.ingredients.map(i => i.name.toLowerCase());
-  for (const a of profile.allergies) {
-    if (ingNames.some(n => n.includes(a)) || recipe.name.toLowerCase().includes(a)) return false;
+// Aggregate per-member preferences across the diners eating a given meal-type
+// slot. allergies and dislikes are unions ("if any diner avoids it, nobody
+// gets it"); dietary constraints are also a union ("if any diner is
+// vegetarian, the slot must be vegetarian"). Returns { allergies, dietary,
+// dislikes } as deduped lowercase arrays, plus the number of diners (for
+// callers that want to short-circuit when the slot has none).
+function constraintsForSlot(profile, mealType) {
+  const diners = profile.members.filter(
+    m => m.meal_behavior && m.meal_behavior[mealType] === 'plan'
+  );
+  const allergies = new Set();
+  const dietary   = new Set();
+  const dislikes  = new Set();
+  for (const m of diners) {
+    for (const a of (m.allergies || [])) allergies.add(a);
+    for (const d of (m.dietary   || [])) dietary.add(d);
+    for (const d of (m.dislikes  || [])) dislikes.add(d);
   }
-  for (const d of profile.dislikes) {
+  return {
+    diners: diners.length,
+    allergies: [...allergies],
+    dietary:   [...dietary],
+    dislikes:  [...dislikes]
+  };
+}
+
+const VEGETARIAN_REJECTS = ['chicken', 'beef', 'pork', 'turkey', 'bacon', 'sausage', 'ham', 'fish', 'salmon', 'tuna', 'shrimp'];
+const VEGAN_REJECTS      = [...VEGETARIAN_REJECTS, 'egg', 'milk', 'cheese', 'butter', 'yogurt', 'cream'];
+const GLUTEN_REJECTS     = ['flour', 'bread', 'pasta', 'tortilla', 'noodle', 'cracker', 'cereal'];
+
+// Per-slot recipe filter. Aggregates allergies/dietary/dislikes across the
+// members eating this slot and rejects any recipe that violates them. Also
+// applies the household-level max_prep_time gate (still profile-level —
+// prep time is about the cook, not the eaters).
+function recipePassesFiltersForSlot(recipe, profile, mealType) {
+  if (profile.max_prep_time && recipe.prep_time > profile.max_prep_time) return false;
+  const ingNames = recipe.ingredients.map(i => i.name.toLowerCase());
+  const recipeNameLower = recipe.name.toLowerCase();
+  const c = constraintsForSlot(profile, mealType);
+
+  for (const a of c.allergies) {
+    if (ingNames.some(n => n.includes(a)) || recipeNameLower.includes(a)) return false;
+  }
+  for (const d of c.dislikes) {
     if (ingNames.some(n => n.includes(d))) return false;
   }
-  for (const c of profile.dietary) {
-    if (c === 'vegetarian') {
-      const meats = ['chicken', 'beef', 'pork', 'turkey', 'bacon', 'sausage', 'ham', 'fish', 'salmon', 'tuna', 'shrimp'];
-      if (meats.some(m => ingNames.some(n => n.includes(m)))) return false;
+  for (const dietary of c.dietary) {
+    if (dietary === 'vegetarian') {
+      if (VEGETARIAN_REJECTS.some(m => ingNames.some(n => n.includes(m)))) return false;
     }
-    if (c === 'vegan') {
-      const animal = ['chicken', 'beef', 'pork', 'turkey', 'bacon', 'sausage', 'ham', 'fish', 'salmon', 'tuna', 'shrimp', 'egg', 'milk', 'cheese', 'butter', 'yogurt', 'cream'];
-      if (animal.some(m => ingNames.some(n => n.includes(m)))) return false;
+    if (dietary === 'vegan') {
+      if (VEGAN_REJECTS.some(m => ingNames.some(n => n.includes(m)))) return false;
     }
-    if (c === 'gluten-free' || c === 'gluten free') {
-      const gluten = ['flour', 'bread', 'pasta', 'tortilla', 'noodle', 'cracker', 'cereal'];
-      if (gluten.some(m => ingNames.some(n => n.includes(m)))) return false;
+    if (dietary === 'gluten-free' || dietary === 'gluten free') {
+      if (GLUTEN_REJECTS.some(m => ingNames.some(n => n.includes(m)))) return false;
     }
   }
-  if (profile.max_prep_time && recipe.prep_time > profile.max_prep_time) return false;
   return true;
 }
 
@@ -138,12 +171,15 @@ function scoreRecipe(recipe, ctx) {
   const used = usedCounts[recipe.id] || 0;
   const repetitionPenalty = used * 0.25;
 
-  const nameLower = recipe.name.toLowerCase();
-  const favoriteBoost = (recipe.favorite || profile.favorites.some(f => nameLower.includes(f))) ? 0.15 : 0;
+  // Per-recipe favorite star (set on the recipe itself, not the household).
+  // The old keyword-favorites and preferred-cuisines profile fields were
+  // retired — keyword matching duplicated the per-recipe star with worse
+  // precision, and per-household cuisine preference averaged across an
+  // unaverageable household was always a fiction.
+  const favoriteBoost = recipe.favorite ? 0.15 : 0;
 
   let fitBoost = 0;
   if (hasKids(profile) && recipe.kid_friendly) fitBoost += 0.1;
-  if (profile.preferred_cuisines.length && recipe.cuisine && profile.preferred_cuisines.includes(recipe.cuisine.toLowerCase())) fitBoost += 0.1;
   if (mealType === 'breakfast' && profile.breakfast_simplicity && recipe.prep_time <= 15) fitBoost += 0.15;
 
   let weights;
@@ -226,7 +262,12 @@ function generatePlan(profileId, userId) {
   if (!userId) throw new Error('generatePlan: userId required');
   const profile = loadProfile(profileId);
   if (!profile) throw new Error('No household profile');
-  const allRecipes = loadRecipes(userId).filter(r => recipePassesHardFilters(r, profile));
+  // Allergies/dietary/dislikes filtering is now per-slot (depends on which
+  // diners are eating that slot), so we no longer pre-filter the recipe
+  // pool. Only the household-wide max_prep_time gate runs at recipe load.
+  const allRecipes = loadRecipes(userId).filter(
+    r => !profile.max_prep_time || r.prep_time <= profile.max_prep_time
+  );
   const warnings = [];
 
   // Pre-compute cost overrides from cached Walmart prices. If we have prices
@@ -249,7 +290,11 @@ function generatePlan(profileId, userId) {
 
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
-    const pool = allRecipes.filter(r => r.meal_type === slot.meal_type);
+    // Per-slot filter: aggregate constraints across the diners eating this
+    // slot, reject recipes that violate any of them.
+    const pool = allRecipes.filter(
+      r => r.meal_type === slot.meal_type && recipePassesFiltersForSlot(r, profile, slot.meal_type)
+    );
     if (pool.length === 0) {
       warnings.push(`No recipes available for ${slot.meal_type} (${DAYS[slot.day]}).`);
       items.push({ ...slot, recipe_id: null, score: null, side_recipe_id: null, side_score: null });
@@ -273,10 +318,17 @@ function generatePlan(profileId, userId) {
     // Pair a side if profile says this meal_type gets one.
     let sidePick = null;
     if (profile.pair_sides_with.includes(slot.meal_type) && sidePool.length) {
-      sidePick = pickSideFor(pick.recipe, sidePool, { ...ctx, mealType: 'side' });
-      if (sidePick) {
-        usedCounts[sidePick.recipe.id] = (usedCounts[sidePick.recipe.id] || 0) + 1;
-        remainingBudget -= sidePick.result.factors.cost_estimate;
+      // Side shares the slot's diners, so it inherits the slot's
+      // per-meal-type constraints (no meat at a vegetarian-diner dinner, etc.)
+      const eligibleSides = sidePool.filter(
+        r => recipePassesFiltersForSlot(r, profile, slot.meal_type)
+      );
+      if (eligibleSides.length) {
+        sidePick = pickSideFor(pick.recipe, eligibleSides, { ...ctx, mealType: 'side' });
+        if (sidePick) {
+          usedCounts[sidePick.recipe.id] = (usedCounts[sidePick.recipe.id] || 0) + 1;
+          remainingBudget -= sidePick.result.factors.cost_estimate;
+        }
       }
     }
 
@@ -374,8 +426,11 @@ function regenerateSlot(planId, day, mealType, target = 'main') {
   const profile = plan.profile;
   const item = plan.items.find(it => it.day === day && it.meal_type === mealType);
   if (!item) return;
-  // Scope the recipe pool to the plan's owner.
-  const allRecipes = loadRecipes(plan.user_id).filter(r => recipePassesHardFilters(r, profile));
+  // Scope the recipe pool to the plan's owner. Per-slot filtering happens
+  // below; here we only apply the household-wide max_prep_time gate.
+  const allRecipes = loadRecipes(plan.user_id).filter(
+    r => !profile.max_prep_time || r.prep_time <= profile.max_prep_time
+  );
   const usedCounts = {};
   for (const it of plan.items) {
     if (it.recipe_id) usedCounts[it.recipe_id] = (usedCounts[it.recipe_id] || 0) + 1;
@@ -391,7 +446,13 @@ function regenerateSlot(planId, day, mealType, target = 'main') {
     const main = item.recipe_id ? db.prepare('SELECT * FROM recipes WHERE id = ?').get(item.recipe_id) : null;
     if (!main) return;
     main.ingredients = db.prepare('SELECT * FROM recipe_ingredients WHERE recipe_id = ?').all(main.id);
-    const sidePool = allRecipes.filter(r => r.meal_type === 'side' && r.id !== item.side_recipe_id);
+    // Side inherits the slot's diners, so it respects the slot's per-meal-type
+    // constraints (no meat at a vegetarian dinner, etc.).
+    const sidePool = allRecipes.filter(
+      r => r.meal_type === 'side'
+        && r.id !== item.side_recipe_id
+        && recipePassesFiltersForSlot(r, profile, mealType)
+    );
     if (!sidePool.length) return;
     const costOverrides = {};
     for (const r of sidePool) {
@@ -403,7 +464,11 @@ function regenerateSlot(planId, day, mealType, target = 'main') {
     db.prepare(`UPDATE weekly_plan_items SET side_recipe_id = ?, side_score_json = ? WHERE plan_id = ? AND day = ? AND meal_type = ?`)
       .run(pick.recipe.id, JSON.stringify(pick.result), planId, day, mealType);
   } else {
-    const pool = allRecipes.filter(r => r.meal_type === mealType && r.id !== item.recipe_id);
+    const pool = allRecipes.filter(
+      r => r.meal_type === mealType
+        && r.id !== item.recipe_id
+        && recipePassesFiltersForSlot(r, profile, mealType)
+    );
     if (!pool.length) return;
     const costOverrides = {};
     for (const r of pool) {
