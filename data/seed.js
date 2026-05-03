@@ -1,369 +1,98 @@
 // Run: node data/seed.js
-// Wipes recipe tables and loads the curated library below.
-// Coverage: 250 recipes across breakfast / lunch / snack / dinner with budget,
-// prep-time, and health variety. Edit / delete / add freely.
+//
+// Wipes the recipe tables, then loads recipes from data/spoonacular-seed.json
+// if that file exists. The JSON is built up over time by data/fetch-seed.js,
+// which pulls from Spoonacular and writes one row per recipe.
+//
+// Behavior:
+//   - JSON present  → wipe + insert from JSON (this is the normal flow)
+//   - JSON missing  → wipe + report "nothing to seed" (don't auto-insert
+//                     legacy hand-curated content; that path is intentionally
+//                     gone now)
+//
+// Safe to re-run anytime. Wiping cascades: deleting a recipe removes its
+// recipe_ingredients (FK ON DELETE CASCADE). Past plan items keep their
+// rows but their recipe_id becomes NULL (FK ON DELETE SET NULL).
 
+const fs = require('fs');
 const path = require('path');
 const db = require(path.join(__dirname, '..', 'app', 'db.js'));
 
-// Compact helper — ingredients are [name, quantity, unit] tuples.
-function r(name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, cal, pro, fi, su, so, ingredients) {
-  return {
-    name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost,
-    calories: cal, protein: pro, fiber: fi, sugar: su, sodium: so,
-    ingredients: ingredients.map(t => ({ name: t[0], quantity: t[1], unit: t[2], brand_preference: t[3] || null }))
-  };
+const JSON_PATH = path.join(__dirname, 'spoonacular-seed.json');
+
+function loadRecipes() {
+  if (!fs.existsSync(JSON_PATH)) {
+    console.log(`No ${path.basename(JSON_PATH)} present — nothing to seed.`);
+    console.log(`Run: node data/fetch-seed.js --plan full`);
+    console.log(`(then re-run this script to populate the database).`);
+    return null;
+  }
+  try {
+    const data = JSON.parse(fs.readFileSync(JSON_PATH, 'utf8'));
+    if (!Array.isArray(data)) throw new Error('seed JSON is not an array');
+    return data;
+  } catch (e) {
+    console.error(`Failed to load ${JSON_PATH}: ${e.message}`);
+    process.exit(1);
+  }
 }
 
-const RECIPES = [
-  // ============================================================
-  // BREAKFAST (50)
-  // ============================================================
-  r('Overnight Oats with Banana', 'breakfast', 'american', 1, 5, 2, 2.5, 320, 10, 6, 12, 60, [['rolled oats',1,'cup'],['milk',1.5,'cup'],['banana',1,'each'],['honey',1,'tbsp']]),
-  r('Overnight Oats with Blueberries', 'breakfast', 'american', 1, 5, 2, 3.25, 310, 11, 7, 10, 55, [['rolled oats',1,'cup'],['milk',1.5,'cup'],['blueberries',0.75,'cup'],['maple syrup',1,'tbsp'],['chia seeds',1,'tbsp']]),
-  r('Overnight Oats PB Chocolate', 'breakfast', 'american', 1, 5, 2, 3, 420, 14, 7, 14, 120, [['rolled oats',1,'cup'],['milk',1.5,'cup'],['peanut butter',2,'tbsp'],['cocoa powder',1,'tbsp'],['maple syrup',1,'tbsp']]),
-  r('Overnight Oats Apple Cinnamon', 'breakfast', 'american', 1, 5, 2, 2.75, 300, 9, 7, 13, 55, [['rolled oats',1,'cup'],['milk',1.5,'cup'],['apple',1,'each'],['cinnamon',0.5,'tsp'],['honey',1,'tbsp']]),
-  r('Steel-Cut Oats with Maple', 'breakfast', 'american', 1, 25, 2, 2, 280, 9, 8, 9, 40, [['steel-cut oats',0.5,'cup'],['water',2,'cup'],['maple syrup',1,'tbsp'],['milk',0.25,'cup']]),
-  r('Oatmeal with Raisins and Walnut', 'breakfast', 'american', 1, 10, 2, 2.25, 310, 9, 7, 14, 80, [['rolled oats',1,'cup'],['water',2,'cup'],['raisins',0.25,'cup'],['walnuts',0.25,'cup'],['brown sugar',1,'tbsp']]),
-  r('Scrambled Eggs & Toast', 'breakfast', 'american', 1, 10, 2, 3, 380, 20, 3, 3, 420, [['eggs',4,'each'],['bread',4,'slice'],['butter',1,'tbsp'],['salt',0.25,'tsp']]),
-  r('Cheese Omelette', 'breakfast', 'french', 1, 10, 1, 3.5, 410, 26, 0, 2, 620, [['eggs',3,'each'],['cheddar cheese',0.5,'cup'],['butter',1,'tbsp'],['salt',0.25,'tsp']]),
-  r('Veggie Omelette', 'breakfast', 'american', 1, 12, 1, 4, 340, 22, 3, 4, 520, [['eggs',3,'each'],['bell pepper',0.5,'each'],['onion',0.25,'each'],['spinach',1,'cup'],['olive oil',1,'tbsp']]),
-  r('Egg White Scramble with Spinach', 'breakfast', 'american', 0, 10, 1, 3.5, 180, 24, 2, 2, 380, [['egg whites',6,'each'],['spinach',2,'cup'],['feta cheese',2,'tbsp'],['olive oil',1,'tsp']]),
-  r('Egg Muffins with Ham', 'breakfast', 'american', 1, 30, 6, 7, 150, 12, 1, 1, 360, [['eggs',8,'each'],['ham',4,'oz'],['cheddar cheese',1,'cup'],['bell pepper',1,'each'],['spinach',1,'cup']]),
-  r('Breakfast Burrito', 'breakfast', 'mexican', 1, 15, 2, 5, 520, 24, 6, 3, 880, [['tortilla',2,'each'],['eggs',4,'each'],['black beans',0.5,'cup'],['cheddar cheese',0.5,'cup'],['salsa',0.25,'cup']]),
-  r('Egg and Cheese Sandwich', 'breakfast', 'american', 1, 8, 1, 2.25, 380, 18, 2, 3, 620, [['english muffin',1,'each'],['eggs',2,'each'],['american cheese',1,'slice'],['butter',1,'tsp']]),
-  r('Poached Eggs on Toast', 'breakfast', 'american', 0, 12, 1, 2, 310, 18, 3, 2, 440, [['eggs',2,'each'],['bread',2,'slice'],['butter',1,'tsp'],['vinegar',1,'tbsp']]),
-  r('Shakshuka', 'breakfast', 'mediterranean', 0, 25, 3, 6, 340, 20, 5, 8, 680, [['eggs',6,'each'],['diced tomatoes',1,'can'],['onion',1,'each'],['bell pepper',1,'each'],['garlic',3,'clove'],['paprika',1,'tsp']]),
-  r('Vegetable Frittata', 'breakfast', 'italian', 0, 25, 4, 6.5, 290, 18, 3, 4, 520, [['eggs',8,'each'],['zucchini',1,'each'],['onion',0.5,'each'],['parmesan cheese',0.5,'cup'],['olive oil',1,'tbsp']]),
-  r('Greek Yogurt Parfait', 'breakfast', 'mediterranean', 1, 5, 1, 2.75, 290, 18, 4, 14, 90, [['greek yogurt',1,'cup'],['granola',0.5,'cup'],['blueberries',0.5,'cup']]),
-  r('Berry Yogurt Bowl', 'breakfast', 'american', 1, 5, 1, 3.25, 260, 16, 6, 18, 70, [['greek yogurt',1,'cup'],['mixed berries',1,'cup'],['honey',1,'tsp'],['almonds',1,'tbsp']]),
-  r('Chia Pudding', 'breakfast', 'american', 0, 5, 2, 3, 240, 8, 10, 8, 55, [['chia seeds',0.25,'cup'],['almond milk',1.5,'cup'],['maple syrup',1,'tbsp'],['vanilla extract',0.5,'tsp']]),
-  r('Mango Chia Pudding', 'breakfast', 'american', 1, 5, 2, 3.5, 260, 7, 10, 16, 55, [['chia seeds',0.25,'cup'],['coconut milk',1.5,'cup'],['mango',1,'cup'],['honey',1,'tbsp']]),
-  r('Buttermilk Pancakes', 'breakfast', 'american', 1, 20, 3, 4, 430, 12, 2, 10, 780, [['flour',1.5,'cup'],['buttermilk',1.5,'cup'],['eggs',2,'each'],['butter',3,'tbsp'],['sugar',2,'tbsp'],['baking powder',1,'tbsp']]),
-  r('Banana Pancakes', 'breakfast', 'american', 1, 15, 2, 2.5, 380, 10, 4, 14, 520, [['flour',1,'cup'],['banana',2,'each'],['eggs',1,'each'],['milk',0.75,'cup'],['baking powder',1,'tsp']]),
-  r('Whole Wheat Pancakes', 'breakfast', 'american', 1, 15, 3, 3, 360, 13, 6, 7, 680, [['whole wheat flour',1.5,'cup'],['milk',1.25,'cup'],['eggs',2,'each'],['butter',2,'tbsp'],['baking powder',1,'tbsp']]),
-  r('Blueberry Waffles', 'breakfast', 'american', 1, 20, 3, 5, 410, 11, 3, 12, 740, [['flour',1.5,'cup'],['milk',1.5,'cup'],['eggs',2,'each'],['blueberries',1,'cup'],['butter',3,'tbsp'],['baking powder',1,'tbsp']]),
-  r('Protein Pancakes', 'breakfast', 'american', 0, 15, 2, 4.5, 380, 32, 3, 6, 520, [['oat flour',1,'cup'],['protein powder',0.5,'cup'],['eggs',2,'each'],['milk',0.75,'cup'],['baking powder',1,'tsp']]),
-  r('Green Smoothie', 'breakfast', 'american', 0, 5, 1, 3, 220, 6, 7, 22, 60, [['spinach',2,'cup'],['banana',1,'each'],['almond milk',1,'cup'],['pineapple',0.5,'cup'],['chia seeds',1,'tbsp']]),
-  r('Berry Smoothie', 'breakfast', 'american', 1, 5, 1, 3.5, 260, 9, 6, 30, 80, [['frozen mixed berries',1.5,'cup'],['greek yogurt',0.5,'cup'],['milk',1,'cup'],['honey',1,'tbsp']]),
-  r('Peanut Butter Banana Smoothie', 'breakfast', 'american', 1, 5, 1, 2.5, 380, 18, 5, 22, 180, [['banana',1,'each'],['peanut butter',2,'tbsp'],['milk',1,'cup'],['oats',0.25,'cup']]),
-  r('Tropical Smoothie', 'breakfast', 'american', 1, 5, 1, 3.75, 240, 4, 5, 38, 40, [['pineapple',1,'cup'],['mango',1,'cup'],['orange juice',1,'cup'],['banana',0.5,'each']]),
-  r('Chocolate Protein Smoothie', 'breakfast', 'american', 0, 5, 1, 4, 320, 32, 4, 16, 180, [['protein powder',1,'scoop'],['banana',1,'each'],['milk',1,'cup'],['cocoa powder',1,'tbsp'],['peanut butter',1,'tbsp']]),
-  r('French Toast', 'breakfast', 'french', 1, 15, 2, 3, 420, 14, 2, 12, 520, [['bread',6,'slice'],['eggs',3,'each'],['milk',0.5,'cup'],['cinnamon',1,'tsp'],['butter',1,'tbsp'],['maple syrup',3,'tbsp']]),
-  r('Avocado Toast', 'breakfast', 'american', 0, 6, 1, 3.5, 320, 8, 9, 2, 380, [['bread',2,'slice'],['avocado',1,'each'],['lemon',0.25,'each'],['red pepper flakes',0.25,'tsp'],['salt',0.25,'tsp']]),
-  r('Peanut Butter Banana Toast', 'breakfast', 'american', 1, 5, 1, 1.5, 360, 12, 6, 14, 320, [['bread',2,'slice'],['peanut butter',2,'tbsp'],['banana',1,'each'],['honey',1,'tsp']]),
-  r('Bagel with Cream Cheese and Lox', 'breakfast', 'american', 0, 8, 1, 7.5, 480, 22, 2, 5, 1260, [['bagel',1,'each'],['cream cheese',2,'tbsp'],['smoked salmon',2,'oz'],['capers',1,'tsp'],['red onion',2,'slice']]),
-  r('English Muffin Sandwich', 'breakfast', 'american', 1, 10, 1, 2.5, 370, 19, 2, 3, 720, [['english muffin',1,'each'],['egg',1,'each'],['turkey sausage patty',1,'each'],['american cheese',1,'slice']]),
-  r('Cinnamon Sugar Toast', 'breakfast', 'american', 1, 5, 1, 1, 260, 6, 2, 14, 240, [['bread',2,'slice'],['butter',1,'tbsp'],['sugar',1,'tbsp'],['cinnamon',0.5,'tsp']]),
-  r('Breakfast Tacos', 'breakfast', 'mexican', 1, 15, 2, 4.5, 430, 22, 5, 3, 840, [['tortilla',4,'each'],['eggs',4,'each'],['chorizo',4,'oz'],['cheddar cheese',0.5,'cup'],['salsa',0.25,'cup']]),
-  r('Breakfast Quesadilla', 'breakfast', 'mexican', 1, 10, 1, 3, 460, 22, 4, 3, 820, [['tortilla',2,'each'],['eggs',2,'each'],['cheddar cheese',0.5,'cup'],['black beans',0.25,'cup'],['salsa',0.25,'cup']]),
-  r('Breakfast Hash', 'breakfast', 'american', 1, 25, 3, 6, 380, 16, 4, 3, 620, [['potato',3,'each'],['onion',1,'each'],['bell pepper',1,'each'],['sausage',8,'oz'],['olive oil',2,'tbsp']]),
-  r('Bacon and Eggs', 'breakfast', 'american', 1, 12, 2, 4, 420, 22, 0, 1, 720, [['eggs',4,'each'],['bacon',6,'slice'],['butter',1,'tbsp']]),
-  r('Sausage Patties with Eggs', 'breakfast', 'american', 1, 15, 2, 4.5, 460, 28, 0, 2, 980, [['eggs',4,'each'],['pork sausage',8,'oz'],['butter',1,'tbsp']]),
-  r('Quinoa Breakfast Bowl', 'breakfast', 'american', 0, 15, 2, 4.5, 340, 11, 6, 12, 60, [['quinoa',1,'cup'],['almond milk',1.25,'cup'],['blueberries',0.5,'cup'],['almonds',2,'tbsp'],['maple syrup',1,'tbsp']]),
-  r('Granola with Milk', 'breakfast', 'american', 1, 3, 1, 2, 340, 9, 5, 18, 120, [['granola',1,'cup'],['milk',1,'cup'],['banana',1,'each']]),
-  r('Cream of Wheat', 'breakfast', 'american', 1, 5, 2, 1.5, 180, 6, 2, 8, 260, [['cream of wheat',0.5,'cup'],['milk',2,'cup'],['brown sugar',2,'tbsp']]),
-  r('Muesli with Yogurt', 'breakfast', 'american', 1, 5, 1, 2.75, 360, 14, 6, 16, 90, [['muesli',1,'cup'],['greek yogurt',0.75,'cup'],['honey',1,'tsp']]),
-  r('Congee with Egg', 'breakfast', 'chinese', 0, 40, 2, 3, 260, 14, 1, 2, 840, [['rice',0.5,'cup'],['water',6,'cup'],['eggs',2,'each'],['ginger',1,'tbsp'],['soy sauce',1,'tbsp'],['green onion',2,'each']]),
-  r('Huevos Rancheros', 'breakfast', 'mexican', 1, 15, 2, 5, 480, 22, 7, 5, 820, [['tortilla',4,'each'],['eggs',4,'each'],['refried beans',1,'can'],['salsa',0.5,'cup'],['cheddar cheese',0.5,'cup']]),
-  r('Full English Plate', 'breakfast', 'british', 0, 25, 2, 9, 640, 34, 5, 6, 1420, [['eggs',4,'each'],['bacon',4,'slice'],['sausage',2,'each'],['baked beans',1,'cup'],['mushrooms',1,'cup'],['tomato',1,'each']]),
-  r('Smoked Salmon Bagel', 'breakfast', 'american', 0, 5, 1, 8, 460, 24, 2, 4, 1180, [['bagel',1,'each'],['cream cheese',2,'tbsp'],['smoked salmon',3,'oz'],['cucumber',4,'slice'],['dill',1,'tsp']]),
-  r('Cottage Cheese with Fruit', 'breakfast', 'american', 1, 3, 1, 2.5, 220, 22, 3, 16, 460, [['cottage cheese',1,'cup'],['pineapple',0.5,'cup'],['strawberries',0.5,'cup']]),
-
-  // ============================================================
-  // LUNCH (60)
-  // ============================================================
-  r('Turkey Sandwich', 'lunch', 'american', 1, 10, 1, 4.5, 430, 28, 4, 5, 900, [['bread',2,'slice'],['sliced turkey',4,'oz'],['cheddar cheese',1,'slice'],['lettuce',1,'cup'],['mayonnaise',1,'tbsp']]),
-  r('Ham and Cheese Sandwich', 'lunch', 'american', 1, 5, 1, 3.5, 400, 22, 2, 4, 1180, [['bread',2,'slice'],['ham',3,'oz'],['swiss cheese',1,'slice'],['mustard',1,'tsp'],['lettuce',1,'cup']]),
-  r('Tuna Salad Sandwich', 'lunch', 'american', 0, 8, 1, 3, 380, 24, 3, 4, 780, [['bread',2,'slice'],['canned tuna',1,'can'],['mayonnaise',2,'tbsp'],['celery',1,'stalk'],['lettuce',1,'cup']]),
-  r('Chicken Salad Sandwich', 'lunch', 'american', 1, 10, 2, 5, 420, 26, 3, 3, 760, [['bread',4,'slice'],['cooked chicken breast',8,'oz'],['mayonnaise',3,'tbsp'],['celery',2,'stalk'],['grapes',0.5,'cup']]),
-  r('BLT', 'lunch', 'american', 1, 10, 1, 4, 460, 18, 3, 4, 1040, [['bread',2,'slice'],['bacon',4,'slice'],['lettuce',1,'cup'],['tomato',1,'each'],['mayonnaise',1,'tbsp']]),
-  r('Caprese Sandwich', 'lunch', 'italian', 0, 8, 1, 5, 480, 22, 3, 5, 820, [['ciabatta',1,'each'],['fresh mozzarella',3,'oz'],['tomato',1,'each'],['basil',0.25,'cup'],['balsamic glaze',1,'tbsp'],['olive oil',1,'tbsp']]),
-  r('Italian Sub', 'lunch', 'italian', 1, 10, 1, 7, 620, 30, 3, 5, 1720, [['sub roll',1,'each'],['salami',2,'oz'],['ham',2,'oz'],['provolone cheese',2,'slice'],['lettuce',1,'cup'],['tomato',0.5,'each'],['italian dressing',2,'tbsp']]),
-  r('Grilled Cheese', 'lunch', 'american', 1, 8, 1, 2.5, 420, 16, 2, 3, 680, [['bread',2,'slice'],['american cheese',2,'slice'],['butter',2,'tbsp']]),
-  r('PB&J', 'lunch', 'american', 1, 3, 1, 1.5, 380, 12, 3, 18, 420, [['bread',2,'slice'],['peanut butter',2,'tbsp'],['grape jelly',2,'tbsp']]),
-  r('Veggie Wrap', 'lunch', 'mediterranean', 0, 8, 1, 4, 340, 10, 8, 5, 620, [['tortilla',1,'each'],['hummus',3,'tbsp'],['cucumber',0.5,'each'],['bell pepper',0.5,'each'],['spinach',1,'cup'],['feta cheese',2,'tbsp']]),
-  r('Club Sandwich', 'lunch', 'american', 1, 12, 1, 6, 580, 34, 4, 5, 1340, [['bread',3,'slice'],['sliced turkey',3,'oz'],['bacon',3,'slice'],['lettuce',1,'cup'],['tomato',1,'each'],['mayonnaise',1,'tbsp']]),
-  r('Banh Mi', 'lunch', 'vietnamese', 0, 15, 1, 6, 520, 24, 4, 8, 1080, [['baguette',1,'each'],['pork belly',4,'oz'],['pickled carrots',0.25,'cup'],['cucumber',0.25,'each'],['cilantro',0.25,'cup'],['sriracha mayo',2,'tbsp']]),
-  r('Chicken Caesar Salad', 'lunch', 'american', 1, 15, 2, 7, 420, 32, 4, 3, 820, [['romaine lettuce',6,'cup'],['chicken breast',8,'oz'],['parmesan cheese',0.5,'cup'],['croutons',0.5,'cup'],['caesar dressing',3,'tbsp']]),
-  r('Greek Salad', 'lunch', 'greek', 0, 10, 2, 6, 320, 10, 6, 8, 820, [['romaine lettuce',6,'cup'],['cucumber',1,'each'],['tomato',2,'each'],['feta cheese',0.5,'cup'],['kalamata olives',0.25,'cup'],['red onion',0.25,'each'],['olive oil',3,'tbsp']]),
-  r('Cobb Salad', 'lunch', 'american', 1, 20, 2, 8, 520, 34, 5, 4, 880, [['romaine lettuce',6,'cup'],['chicken breast',8,'oz'],['bacon',4,'slice'],['hard boiled egg',2,'each'],['blue cheese',0.5,'cup'],['avocado',1,'each']]),
-  r('Chickpea Salad Bowl', 'lunch', 'mediterranean', 0, 15, 2, 5, 420, 18, 12, 6, 320, [['chickpeas',1,'can'],['cucumber',1,'each'],['cherry tomatoes',1,'cup'],['feta cheese',0.5,'cup'],['olive oil',2,'tbsp'],['lemon',1,'each']]),
-  r('Kale Caesar Salad', 'lunch', 'american', 0, 10, 2, 5.5, 340, 14, 5, 4, 620, [['kale',6,'cup'],['parmesan cheese',0.5,'cup'],['croutons',0.5,'cup'],['caesar dressing',3,'tbsp'],['lemon',0.5,'each']]),
-  r('Spinach Salad with Egg', 'lunch', 'american', 0, 10, 2, 4.5, 280, 16, 4, 4, 520, [['spinach',6,'cup'],['hard boiled egg',2,'each'],['bacon',4,'slice'],['mushrooms',1,'cup'],['red onion',0.25,'each'],['vinaigrette',3,'tbsp']]),
-  r('Taco Salad', 'lunch', 'mexican', 1, 20, 2, 7, 560, 28, 9, 6, 1180, [['romaine lettuce',6,'cup'],['ground beef',0.5,'lb'],['black beans',1,'can'],['corn',0.5,'cup'],['cheddar cheese',0.5,'cup'],['salsa',0.5,'cup'],['tortilla chips',1,'cup']]),
-  r('Pasta Salad', 'lunch', 'italian', 1, 20, 4, 6, 380, 10, 3, 6, 680, [['rotini pasta',12,'oz'],['cherry tomatoes',1,'cup'],['cucumber',1,'each'],['mozzarella balls',1,'cup'],['italian dressing',0.5,'cup']]),
-  r('Asian Chicken Salad', 'lunch', 'chinese', 0, 15, 2, 7, 460, 30, 6, 14, 980, [['cabbage',4,'cup'],['chicken breast',8,'oz'],['carrot',1,'each'],['edamame',0.5,'cup'],['mandarin oranges',0.5,'cup'],['sesame ginger dressing',3,'tbsp']]),
-  r('Quinoa Power Salad', 'lunch', 'american', 0, 20, 2, 6, 440, 16, 9, 6, 380, [['quinoa',1,'cup'],['kale',2,'cup'],['chickpeas',1,'can'],['dried cranberries',0.25,'cup'],['almonds',0.25,'cup'],['lemon vinaigrette',3,'tbsp']]),
-  r('Lentil Salad', 'lunch', 'mediterranean', 0, 25, 3, 4.5, 340, 18, 12, 4, 380, [['lentils',1,'cup'],['cucumber',1,'each'],['cherry tomatoes',1,'cup'],['feta cheese',0.5,'cup'],['parsley',0.25,'cup'],['olive oil',3,'tbsp'],['lemon',1,'each']]),
-  r('Chef Salad', 'lunch', 'american', 1, 15, 2, 7, 440, 32, 5, 4, 1080, [['romaine lettuce',6,'cup'],['turkey',4,'oz'],['ham',4,'oz'],['swiss cheese',0.5,'cup'],['hard boiled egg',2,'each'],['ranch dressing',3,'tbsp']]),
-  r('Chicken Noodle Soup', 'lunch', 'american', 1, 30, 4, 8, 320, 22, 3, 4, 1180, [['chicken breast',1,'lb'],['egg noodles',8,'oz'],['carrot',3,'each'],['celery',3,'stalk'],['onion',1,'each'],['chicken broth',8,'cup']]),
-  r('Tomato Soup', 'lunch', 'american', 1, 25, 4, 4, 220, 6, 4, 16, 820, [['canned tomatoes',2,'can'],['onion',1,'each'],['garlic',3,'clove'],['chicken broth',2,'cup'],['heavy cream',0.5,'cup'],['basil',0.25,'cup']]),
-  r('Minestrone Soup', 'lunch', 'italian', 1, 40, 6, 7, 260, 10, 9, 7, 780, [['cannellini beans',1,'can'],['diced tomatoes',1,'can'],['carrot',2,'each'],['celery',2,'stalk'],['onion',1,'each'],['zucchini',1,'each'],['pasta',1,'cup'],['chicken broth',6,'cup']]),
-  r('Black Bean Soup', 'lunch', 'mexican', 0, 30, 4, 4, 280, 14, 14, 4, 720, [['black beans',3,'can'],['onion',1,'each'],['garlic',4,'clove'],['cumin',1,'tbsp'],['vegetable broth',4,'cup'],['lime',1,'each']]),
-  r('Lentil Soup', 'lunch', 'mediterranean', 0, 45, 4, 4.5, 320, 18, 14, 5, 680, [['lentils',1.5,'cup'],['carrot',3,'each'],['celery',3,'stalk'],['onion',1,'each'],['diced tomatoes',1,'can'],['vegetable broth',6,'cup'],['cumin',1,'tsp']]),
-  r('Miso Soup with Tofu', 'lunch', 'japanese', 0, 15, 2, 3.5, 140, 10, 2, 2, 820, [['miso paste',3,'tbsp'],['tofu',8,'oz'],['seaweed',2,'tbsp'],['green onion',2,'each'],['water',4,'cup']]),
-  r('Broccoli Cheddar Soup', 'lunch', 'american', 1, 35, 4, 7, 380, 16, 4, 6, 980, [['broccoli',4,'cup'],['cheddar cheese',2,'cup'],['onion',1,'each'],['carrot',1,'each'],['flour',0.25,'cup'],['milk',2,'cup'],['chicken broth',3,'cup']]),
-  r('Butternut Squash Soup', 'lunch', 'american', 0, 45, 4, 6, 240, 4, 6, 14, 620, [['butternut squash',1,'each'],['onion',1,'each'],['garlic',3,'clove'],['apple',1,'each'],['chicken broth',4,'cup'],['heavy cream',0.25,'cup']]),
-  r('Burrito Bowl', 'lunch', 'mexican', 1, 20, 2, 7, 580, 32, 11, 4, 1120, [['rice',1,'cup'],['black beans',1,'can'],['chicken breast',8,'oz'],['corn',0.5,'cup'],['salsa',0.5,'cup'],['cheddar cheese',0.5,'cup'],['sour cream',0.25,'cup']]),
-  r('Buddha Bowl', 'lunch', 'american', 0, 25, 2, 6, 460, 14, 10, 7, 380, [['brown rice',1,'cup'],['sweet potato',1,'each'],['chickpeas',1,'can'],['kale',2,'cup'],['avocado',1,'each'],['tahini',2,'tbsp']]),
-  r('Chicken Rice Bowl', 'lunch', 'asian', 1, 25, 2, 6.5, 520, 36, 4, 6, 820, [['rice',1,'cup'],['chicken breast',8,'oz'],['broccoli',2,'cup'],['carrot',1,'each'],['soy sauce',3,'tbsp'],['sesame oil',1,'tbsp']]),
-  r('Poke Bowl', 'lunch', 'japanese', 0, 20, 2, 12, 560, 32, 5, 6, 1080, [['sushi-grade tuna',8,'oz'],['rice',1,'cup'],['avocado',1,'each'],['cucumber',1,'each'],['edamame',0.5,'cup'],['soy sauce',3,'tbsp'],['sesame seeds',1,'tbsp']]),
-  r('Mediterranean Grain Bowl', 'lunch', 'mediterranean', 0, 20, 2, 6, 480, 16, 10, 5, 620, [['farro',1,'cup'],['chicken breast',6,'oz'],['cucumber',1,'each'],['tomato',1,'each'],['kalamata olives',0.25,'cup'],['feta cheese',0.5,'cup'],['tzatziki',0.25,'cup']]),
-  r('Falafel Bowl', 'lunch', 'middle-eastern', 0, 25, 2, 6, 520, 18, 11, 6, 720, [['falafel',8,'each'],['couscous',1,'cup'],['cucumber',1,'each'],['tomato',1,'each'],['hummus',0.25,'cup'],['tahini',2,'tbsp']]),
-  r('Teriyaki Chicken Bowl', 'lunch', 'japanese', 1, 25, 2, 7, 620, 34, 4, 18, 1380, [['chicken breast',12,'oz'],['rice',1,'cup'],['broccoli',2,'cup'],['teriyaki sauce',0.25,'cup'],['sesame seeds',1,'tbsp']]),
-  r('Ramen Bowl', 'lunch', 'japanese', 1, 25, 2, 6, 620, 26, 4, 6, 2080, [['ramen noodles',2,'package'],['chicken broth',6,'cup'],['soft-boiled egg',2,'each'],['pork belly',4,'oz'],['green onion',3,'each'],['soy sauce',2,'tbsp']]),
-  r('Pho', 'lunch', 'vietnamese', 0, 40, 3, 8, 480, 30, 3, 6, 1680, [['rice noodles',8,'oz'],['beef broth',8,'cup'],['beef sirloin',12,'oz'],['onion',1,'each'],['ginger',2,'tbsp'],['bean sprouts',1,'cup'],['cilantro',0.25,'cup'],['lime',1,'each']]),
-  r('Taco Bowl', 'lunch', 'mexican', 1, 20, 2, 6.5, 580, 30, 10, 5, 1240, [['ground beef',0.5,'lb'],['rice',1,'cup'],['black beans',1,'can'],['corn',0.5,'cup'],['cheddar cheese',0.5,'cup'],['salsa',0.5,'cup']]),
-  r('Chicken Caesar Wrap', 'lunch', 'american', 1, 10, 1, 5, 520, 30, 4, 3, 1180, [['tortilla',1,'each'],['chicken breast',6,'oz'],['romaine lettuce',2,'cup'],['parmesan cheese',0.25,'cup'],['caesar dressing',2,'tbsp']]),
-  r('Hummus Veggie Wrap', 'lunch', 'mediterranean', 1, 8, 1, 3.5, 380, 12, 9, 4, 620, [['tortilla',1,'each'],['hummus',0.25,'cup'],['cucumber',0.5,'each'],['carrot',0.5,'each'],['bell pepper',0.5,'each'],['spinach',1,'cup']]),
-  r('Buffalo Chicken Wrap', 'lunch', 'american', 1, 12, 1, 6, 560, 32, 4, 3, 1340, [['tortilla',1,'each'],['chicken breast',6,'oz'],['buffalo sauce',2,'tbsp'],['ranch dressing',2,'tbsp'],['lettuce',1,'cup'],['cheddar cheese',0.25,'cup']]),
-  r('Southwest Wrap', 'lunch', 'mexican', 1, 12, 1, 5, 520, 22, 8, 4, 980, [['tortilla',1,'each'],['black beans',0.5,'cup'],['rice',0.5,'cup'],['chicken breast',4,'oz'],['corn',0.25,'cup'],['salsa',0.25,'cup'],['cheddar cheese',0.25,'cup']]),
-  r('Turkey Avocado Wrap', 'lunch', 'american', 1, 8, 1, 5, 460, 24, 7, 3, 980, [['tortilla',1,'each'],['sliced turkey',4,'oz'],['avocado',1,'each'],['spinach',1,'cup'],['tomato',1,'each'],['mayonnaise',1,'tbsp']]),
-  r('Leftover Chili Bowl', 'lunch', 'american', 1, 10, 1, 3, 420, 28, 10, 6, 820, [['prepared chili',1.5,'cup'],['cheddar cheese',0.25,'cup'],['sour cream',2,'tbsp'],['green onion',1,'each']]),
-  r('Cheese Quesadilla', 'lunch', 'mexican', 1, 10, 1, 3, 480, 20, 3, 3, 820, [['tortilla',2,'each'],['cheddar cheese',1,'cup'],['salsa',0.25,'cup']]),
-  r('Grilled Chicken with Veggies', 'lunch', 'american', 0, 25, 2, 7, 420, 38, 5, 8, 520, [['chicken breast',1,'lb'],['zucchini',1,'each'],['bell pepper',1,'each'],['olive oil',2,'tbsp'],['italian seasoning',1,'tbsp']]),
-  r('Pesto Pasta', 'lunch', 'italian', 1, 15, 3, 5, 460, 14, 3, 3, 420, [['pasta',12,'oz'],['pesto',0.5,'cup'],['parmesan cheese',0.25,'cup'],['cherry tomatoes',1,'cup']]),
-  r('Adult Mac and Cheese', 'lunch', 'american', 1, 20, 3, 4.5, 520, 18, 2, 8, 780, [['macaroni',12,'oz'],['cheddar cheese',2,'cup'],['milk',1,'cup'],['butter',3,'tbsp'],['flour',2,'tbsp']]),
-  r('Pizza Bagels', 'lunch', 'american', 1, 15, 2, 3, 420, 18, 2, 5, 860, [['bagel',2,'each'],['marinara sauce',0.5,'cup'],['mozzarella cheese',1,'cup'],['pepperoni',12,'slice']]),
-  r('Charcuterie Plate', 'lunch', 'french', 0, 10, 2, 12, 480, 22, 2, 6, 1340, [['salami',4,'oz'],['prosciutto',3,'oz'],['brie cheese',4,'oz'],['crackers',12,'each'],['grapes',1,'cup'],['olives',0.5,'cup']]),
-  r('Bulgogi Rice Bowl', 'lunch', 'korean', 0, 25, 2, 9, 620, 32, 3, 12, 1380, [['beef sirloin',12,'oz'],['rice',1,'cup'],['soy sauce',3,'tbsp'],['brown sugar',2,'tbsp'],['sesame oil',1,'tbsp'],['kimchi',0.5,'cup']]),
-  r('Japanese Curry Plate', 'lunch', 'japanese', 1, 35, 4, 8, 580, 22, 5, 10, 1280, [['chicken thighs',1,'lb'],['rice',2,'cup'],['carrot',2,'each'],['potato',2,'each'],['onion',1,'each'],['japanese curry roux',1,'package']]),
-  r('Pad Thai', 'lunch', 'thai', 1, 25, 3, 7, 540, 22, 3, 12, 1120, [['rice noodles',8,'oz'],['chicken breast',8,'oz'],['eggs',2,'each'],['bean sprouts',1,'cup'],['peanuts',0.25,'cup'],['pad thai sauce',0.25,'cup'],['lime',1,'each']]),
-  r('Bento Box', 'lunch', 'japanese', 1, 15, 1, 6, 480, 24, 4, 6, 920, [['rice',1,'cup'],['salmon',4,'oz'],['edamame',0.5,'cup'],['carrot',0.5,'each'],['cucumber',0.5,'each'],['soy sauce',1,'tbsp']]),
-  r('Lobster Roll', 'lunch', 'american', 0, 15, 2, 18, 520, 28, 1, 4, 980, [['hot dog bun',2,'each'],['cooked lobster',8,'oz'],['mayonnaise',3,'tbsp'],['celery',1,'stalk'],['lemon',0.5,'each'],['butter',1,'tbsp']]),
-  r('Tuna Melt', 'lunch', 'american', 1, 12, 2, 5, 520, 30, 3, 4, 1180, [['bread',4,'slice'],['canned tuna',2,'can'],['mayonnaise',3,'tbsp'],['cheddar cheese',4,'slice'],['butter',2,'tbsp']]),
-
-  // ============================================================
-  // SNACK (50)
-  // ============================================================
-  r('Apple with Peanut Butter', 'snack', 'american', 1, 3, 1, 1, 260, 8, 5, 20, 120, [['apple',1,'each'],['peanut butter',2,'tbsp']]),
-  r('Banana with Almond Butter', 'snack', 'american', 1, 2, 1, 1.25, 280, 8, 5, 18, 0, [['banana',1,'each'],['almond butter',2,'tbsp']]),
-  r('Grapes and Cheese', 'snack', 'american', 1, 2, 1, 2, 180, 8, 1, 18, 180, [['grapes',1,'cup'],['cheddar cheese',1,'oz']]),
-  r('Strawberry Platter', 'snack', 'american', 1, 3, 1, 2.5, 60, 1, 3, 10, 0, [['strawberries',1,'cup']]),
-  r('Orange Wedges', 'snack', 'american', 1, 2, 1, 1, 70, 1, 3, 12, 0, [['orange',1,'each']]),
-  r('Fruit Salad', 'snack', 'american', 1, 8, 2, 4, 120, 2, 4, 22, 0, [['strawberries',0.5,'cup'],['blueberries',0.5,'cup'],['pineapple',0.5,'cup'],['grapes',0.5,'cup'],['banana',1,'each']]),
-  r('Carrots with Hummus', 'snack', 'mediterranean', 1, 3, 2, 2.5, 180, 6, 6, 5, 320, [['hummus',0.5,'cup'],['baby carrots',2,'cup']]),
-  r('Celery with Peanut Butter', 'snack', 'american', 1, 3, 1, 1.5, 220, 8, 4, 4, 140, [['celery',3,'stalk'],['peanut butter',2,'tbsp']]),
-  r('Cucumber with Tzatziki', 'snack', 'greek', 1, 5, 1, 2.5, 120, 5, 1, 3, 240, [['cucumber',1,'each'],['tzatziki',0.25,'cup']]),
-  r('Bell Pepper with Ranch', 'snack', 'american', 1, 3, 1, 2, 180, 2, 3, 6, 380, [['bell pepper',1,'each'],['ranch dressing',3,'tbsp']]),
-  r('Cherry Tomatoes with Mozzarella', 'snack', 'italian', 1, 3, 1, 3.5, 180, 12, 2, 4, 280, [['cherry tomatoes',1,'cup'],['mozzarella balls',0.5,'cup'],['basil',2,'tbsp'],['olive oil',1,'tsp']]),
-  r('Broccoli with Dip', 'snack', 'american', 1, 5, 1, 2, 140, 4, 4, 3, 280, [['broccoli',2,'cup'],['ranch dressing',3,'tbsp']]),
-  r('Cheese and Crackers', 'snack', 'american', 1, 3, 1, 2.5, 240, 10, 1, 2, 420, [['cheddar cheese',2,'oz'],['crackers',12,'each']]),
-  r('String Cheese', 'snack', 'american', 1, 1, 1, 0.75, 80, 7, 0, 0, 200, [['mozzarella string cheese',1,'each']]),
-  r('Cottage Cheese Bowl', 'snack', 'american', 1, 2, 1, 2, 180, 20, 1, 10, 420, [['cottage cheese',1,'cup'],['pineapple',0.5,'cup']]),
-  r('Greek Yogurt with Honey', 'snack', 'greek', 1, 2, 1, 2, 220, 16, 0, 20, 80, [['greek yogurt',1,'cup'],['honey',1,'tbsp'],['walnuts',1,'tbsp']]),
-  r('Ricotta with Honey and Pistachio', 'snack', 'italian', 0, 3, 1, 3, 240, 12, 1, 12, 80, [['ricotta cheese',0.5,'cup'],['honey',1,'tbsp'],['pistachios',1,'tbsp']]),
-  r('Cheese Stick', 'snack', 'american', 1, 1, 1, 0.75, 80, 7, 0, 0, 200, [['colby jack cheese stick',1,'each']]),
-  r('Trail Mix', 'snack', 'american', 1, 1, 1, 1.5, 260, 7, 4, 14, 40, [['trail mix',0.33,'cup']]),
-  r('Almonds', 'snack', 'american', 1, 1, 1, 1.25, 180, 7, 3, 1, 0, [['almonds',0.25,'cup']]),
-  r('Mixed Nuts', 'snack', 'american', 1, 1, 1, 1.5, 200, 6, 3, 2, 80, [['mixed nuts',0.25,'cup']]),
-  r('Pumpkin Seeds', 'snack', 'american', 0, 1, 1, 1, 160, 9, 2, 1, 140, [['pumpkin seeds',0.25,'cup']]),
-  r('Cashews', 'snack', 'american', 1, 1, 1, 1.5, 200, 6, 1, 2, 80, [['cashews',0.25,'cup']]),
-  r('Pita Chips with Hummus', 'snack', 'mediterranean', 1, 3, 1, 2.5, 280, 8, 4, 2, 480, [['pita chips',1,'oz'],['hummus',0.25,'cup']]),
-  r('Tortilla Chips with Salsa', 'snack', 'mexican', 1, 3, 1, 2, 200, 3, 3, 2, 480, [['tortilla chips',1,'oz'],['salsa',0.5,'cup']]),
-  r('Crackers with Cheese', 'snack', 'american', 1, 3, 1, 2.25, 220, 8, 1, 2, 380, [['crackers',10,'each'],['cheddar cheese',1,'oz']]),
-  r('Pretzels', 'snack', 'american', 1, 1, 1, 1, 110, 3, 1, 1, 340, [['pretzels',1,'oz']]),
-  r('Rice Cakes with Peanut Butter', 'snack', 'american', 1, 3, 1, 1.25, 180, 6, 2, 2, 120, [['rice cakes',2,'each'],['peanut butter',1,'tbsp']]),
-  r('Graham Crackers with Yogurt', 'snack', 'american', 1, 3, 1, 1.5, 220, 8, 1, 14, 220, [['graham crackers',4,'each'],['vanilla yogurt',0.5,'cup']]),
-  r('Hard Boiled Eggs', 'snack', 'american', 1, 12, 2, 1.5, 160, 12, 0, 1, 140, [['eggs',2,'each'],['salt',0.25,'tsp']]),
-  r('Deli Turkey Rollups', 'snack', 'american', 1, 5, 1, 3, 180, 18, 0, 2, 720, [['sliced turkey',4,'oz'],['cream cheese',1,'tbsp'],['cucumber',0.25,'each']]),
-  r('Tuna on Crackers', 'snack', 'american', 0, 5, 1, 2.5, 220, 22, 1, 1, 520, [['canned tuna',0.5,'can'],['crackers',6,'each'],['mayonnaise',1,'tbsp']]),
-  r('Chicken Jerky', 'snack', 'american', 1, 1, 1, 3, 100, 18, 0, 4, 380, [['chicken jerky',1,'oz']]),
-  r('Edamame', 'snack', 'japanese', 1, 8, 2, 2.5, 160, 12, 6, 2, 140, [['edamame',1,'cup'],['sea salt',0.5,'tsp']]),
-  r('Dark Chocolate Squares', 'snack', 'american', 0, 1, 1, 1.25, 180, 2, 3, 12, 10, [['dark chocolate',1,'oz']]),
-  r('Chocolate Granola Bar', 'snack', 'american', 1, 1, 1, 1, 150, 3, 2, 10, 85, [['granola bar',1,'each']]),
-  r('Protein Bar', 'snack', 'american', 1, 1, 1, 2.5, 200, 20, 4, 6, 140, [['protein bar',1,'each']]),
-  r('Chocolate Covered Strawberries', 'snack', 'american', 1, 15, 2, 4, 220, 2, 4, 22, 20, [['strawberries',1,'cup'],['dark chocolate chips',0.5,'cup']]),
-  r('Yogurt Popsicle', 'snack', 'american', 1, 5, 4, 3, 100, 4, 1, 14, 40, [['greek yogurt',2,'cup'],['berries',1,'cup'],['honey',2,'tbsp']]),
-  r('Banana Nice Cream', 'snack', 'american', 1, 5, 2, 1.5, 120, 1, 3, 18, 0, [['frozen banana',2,'each'],['almond milk',0.25,'cup']]),
-  r('Guacamole with Chips', 'snack', 'mexican', 1, 8, 2, 4, 320, 4, 8, 2, 480, [['avocado',2,'each'],['lime',1,'each'],['cilantro',2,'tbsp'],['tortilla chips',2,'oz']]),
-  r('Caprese Skewers', 'snack', 'italian', 1, 10, 2, 4, 220, 12, 1, 4, 280, [['cherry tomatoes',12,'each'],['mozzarella balls',12,'each'],['basil',12,'leaf'],['balsamic glaze',1,'tbsp']]),
-  r('Deviled Eggs', 'snack', 'american', 1, 20, 2, 2, 180, 12, 0, 1, 320, [['eggs',4,'each'],['mayonnaise',2,'tbsp'],['mustard',0.5,'tsp'],['paprika',0.25,'tsp']]),
-  r('Mini Charcuterie Plate', 'snack', 'french', 0, 5, 1, 6, 320, 16, 1, 4, 820, [['prosciutto',2,'oz'],['brie cheese',2,'oz'],['crackers',6,'each'],['grapes',0.5,'cup']]),
-  r('Olives', 'snack', 'mediterranean', 0, 1, 2, 2, 80, 1, 2, 0, 620, [['kalamata olives',0.5,'cup']]),
-  r('Green Smoothie Shot', 'snack', 'american', 0, 5, 1, 2, 80, 2, 2, 10, 40, [['spinach',1,'cup'],['pineapple',0.25,'cup'],['ginger',0.5,'tsp'],['coconut water',0.5,'cup']]),
-  r('Berry Protein Shake', 'snack', 'american', 0, 3, 1, 3, 220, 24, 3, 16, 140, [['protein powder',1,'scoop'],['mixed berries',0.5,'cup'],['almond milk',1,'cup']]),
-  r('Chocolate Protein Shake', 'snack', 'american', 0, 3, 1, 3, 240, 26, 2, 12, 160, [['chocolate protein powder',1,'scoop'],['banana',0.5,'each'],['milk',1,'cup']]),
-  r('Kefir Glass', 'snack', 'american', 1, 1, 1, 1.5, 140, 10, 0, 14, 140, [['kefir',1,'cup']]),
-  r('Hot Cocoa', 'snack', 'american', 1, 5, 1, 0.75, 180, 8, 1, 22, 140, [['milk',1,'cup'],['cocoa powder',1,'tbsp'],['sugar',1,'tbsp']]),
-
-  // ============================================================
-  // DINNER (90)
-  // ============================================================
-  r('Sheet-Pan Chicken and Veggies', 'dinner', 'american', 1, 35, 4, 11, 460, 36, 6, 6, 520, [['chicken breast',1.5,'lb'],['broccoli',1,'head'],['sweet potato',2,'each'],['olive oil',2,'tbsp'],['salt',1,'tsp']]),
-  r('Chicken Stir Fry', 'dinner', 'chinese', 1, 25, 4, 10, 420, 32, 4, 8, 1180, [['chicken breast',1.5,'lb'],['bell pepper',2,'each'],['broccoli',2,'cup'],['carrot',2,'each'],['soy sauce',0.25,'cup'],['garlic',3,'clove'],['ginger',1,'tbsp'],['sesame oil',1,'tbsp']]),
-  r('Chicken Parmesan', 'dinner', 'italian', 1, 45, 4, 13, 620, 44, 4, 10, 1280, [['chicken breast',1.5,'lb'],['breadcrumbs',1,'cup'],['eggs',2,'each'],['mozzarella cheese',1.5,'cup'],['parmesan cheese',0.5,'cup'],['marinara sauce',2,'cup'],['spaghetti',12,'oz']]),
-  r('Chicken Fajitas', 'dinner', 'mexican', 1, 30, 4, 11, 520, 32, 6, 6, 1020, [['chicken breast',1.5,'lb'],['bell pepper',3,'each'],['onion',1,'each'],['tortilla',8,'each'],['fajita seasoning',1,'tbsp'],['olive oil',2,'tbsp']]),
-  r('Grilled Chicken with Rice', 'dinner', 'american', 1, 30, 4, 10, 460, 36, 2, 3, 680, [['chicken breast',1.5,'lb'],['rice',2,'cup'],['olive oil',2,'tbsp'],['garlic powder',1,'tsp'],['paprika',1,'tsp']]),
-  r('Chicken Curry', 'dinner', 'indian', 0, 35, 4, 12, 520, 34, 4, 6, 780, [['chicken thighs',1.5,'lb'],['coconut milk',1,'can'],['onion',1,'each'],['garlic',4,'clove'],['ginger',2,'tbsp'],['curry powder',2,'tbsp'],['rice',2,'cup']]),
-  r('Butter Chicken', 'dinner', 'indian', 1, 40, 4, 13, 620, 36, 3, 8, 980, [['chicken thighs',1.5,'lb'],['tomato sauce',1,'cup'],['heavy cream',1,'cup'],['butter',3,'tbsp'],['garam masala',1,'tbsp'],['garlic',4,'clove'],['ginger',2,'tbsp'],['rice',2,'cup']]),
-  r('Chicken Marsala', 'dinner', 'italian', 0, 35, 4, 13, 520, 34, 2, 4, 820, [['chicken breast',1.5,'lb'],['mushrooms',8,'oz'],['marsala wine',0.5,'cup'],['chicken broth',0.5,'cup'],['butter',3,'tbsp'],['flour',0.25,'cup']]),
-  r('Lemon Chicken', 'dinner', 'american', 1, 30, 4, 10, 420, 34, 1, 4, 620, [['chicken breast',1.5,'lb'],['lemon',2,'each'],['garlic',4,'clove'],['butter',3,'tbsp'],['chicken broth',0.5,'cup'],['parsley',0.25,'cup']]),
-  r('Chicken Piccata', 'dinner', 'italian', 0, 30, 4, 12, 480, 34, 1, 3, 920, [['chicken breast',1.5,'lb'],['lemon',2,'each'],['capers',3,'tbsp'],['butter',3,'tbsp'],['chicken broth',0.5,'cup'],['flour',0.25,'cup']]),
-  r('BBQ Chicken', 'dinner', 'american', 1, 35, 4, 10, 520, 36, 1, 24, 1280, [['chicken thighs',2,'lb'],['bbq sauce',1,'cup']]),
-  r('Chicken Tacos', 'dinner', 'mexican', 1, 25, 4, 10, 460, 30, 6, 4, 880, [['chicken breast',1.5,'lb'],['tortilla',12,'each'],['taco seasoning',2,'tbsp'],['cheddar cheese',1,'cup'],['salsa',1,'cup']]),
-  r('Chicken Enchiladas', 'dinner', 'mexican', 1, 45, 4, 11, 580, 34, 5, 5, 1280, [['chicken breast',1.25,'lb'],['tortilla',10,'each'],['enchilada sauce',2,'cup'],['cheddar cheese',2,'cup'],['black beans',1,'can']]),
-  r('Chicken Alfredo', 'dinner', 'italian', 1, 30, 4, 12, 680, 38, 2, 4, 920, [['chicken breast',1,'lb'],['fettuccine',12,'oz'],['heavy cream',1.5,'cup'],['parmesan cheese',1,'cup'],['butter',3,'tbsp'],['garlic',3,'clove']]),
-  r('Chicken and Rice Soup', 'dinner', 'american', 1, 40, 4, 8, 380, 28, 2, 3, 1180, [['chicken breast',1,'lb'],['rice',1,'cup'],['carrot',3,'each'],['celery',3,'stalk'],['onion',1,'each'],['chicken broth',8,'cup']]),
-  r('Beef Tacos', 'dinner', 'mexican', 1, 25, 4, 10, 520, 28, 6, 4, 980, [['ground beef',1,'lb'],['tortilla',12,'each'],['taco seasoning',2,'tbsp'],['cheddar cheese',1,'cup'],['salsa',1,'cup'],['lettuce',1,'cup']]),
-  r('Spaghetti Bolognese', 'dinner', 'italian', 1, 45, 4, 10, 580, 30, 5, 10, 920, [['ground beef',1,'lb'],['spaghetti',1,'lb'],['canned tomatoes',1,'can'],['tomato paste',2,'tbsp'],['onion',1,'each'],['carrot',1,'each'],['garlic',3,'clove']]),
-  r('Beef Stir Fry', 'dinner', 'chinese', 1, 25, 4, 13, 520, 34, 4, 10, 1320, [['beef sirloin',1.25,'lb'],['broccoli',3,'cup'],['bell pepper',2,'each'],['soy sauce',0.25,'cup'],['garlic',3,'clove'],['ginger',1,'tbsp'],['cornstarch',1,'tbsp']]),
-  r('Meatloaf', 'dinner', 'american', 1, 65, 6, 10, 480, 26, 2, 8, 980, [['ground beef',2,'lb'],['breadcrumbs',1,'cup'],['eggs',2,'each'],['onion',1,'each'],['ketchup',0.5,'cup'],['worcestershire sauce',2,'tbsp']]),
-  r('Cheeseburgers', 'dinner', 'american', 1, 20, 4, 9, 580, 30, 2, 6, 920, [['ground beef',1,'lb'],['hamburger buns',4,'each'],['american cheese',4,'slice'],['lettuce',1,'cup'],['tomato',1,'each'],['onion',0.5,'each']]),
-  r('Beef Chili', 'dinner', 'american', 1, 45, 6, 12, 520, 32, 12, 8, 880, [['ground beef',1.5,'lb'],['kidney beans',2,'can'],['diced tomatoes',2,'can'],['onion',1,'each'],['chili powder',3,'tbsp'],['bell pepper',1,'each']]),
-  r('Steak with Roasted Potatoes', 'dinner', 'american', 0, 35, 4, 18, 620, 42, 4, 3, 680, [['ribeye steak',2,'lb'],['potato',4,'each'],['olive oil',3,'tbsp'],['rosemary',1,'tbsp'],['garlic',4,'clove']]),
-  r('Beef Stew', 'dinner', 'american', 0, 120, 6, 13, 480, 32, 5, 8, 820, [['beef chuck',2,'lb'],['potato',4,'each'],['carrot',4,'each'],['onion',2,'each'],['beef broth',4,'cup'],['tomato paste',3,'tbsp']]),
-  r('Shepherds Pie', 'dinner', 'british', 1, 60, 6, 11, 520, 26, 5, 6, 820, [['ground lamb',1.5,'lb'],['potato',6,'each'],['carrot',3,'each'],['peas',1,'cup'],['onion',1,'each'],['beef broth',1,'cup'],['butter',4,'tbsp']]),
-  r('Philly Cheesesteak', 'dinner', 'american', 1, 25, 4, 13, 680, 38, 3, 5, 1380, [['ribeye steak',1.5,'lb'],['hoagie rolls',4,'each'],['provolone cheese',8,'slice'],['onion',1,'each'],['bell pepper',1,'each'],['olive oil',2,'tbsp']]),
-  r('Pork Tenderloin with Veggies', 'dinner', 'american', 0, 40, 4, 12, 480, 38, 4, 6, 620, [['pork tenderloin',2,'lb'],['brussels sprouts',1,'lb'],['sweet potato',2,'each'],['olive oil',2,'tbsp'],['rosemary',1,'tbsp']]),
-  r('Pork Chops with Apples', 'dinner', 'american', 1, 30, 4, 12, 520, 36, 3, 16, 620, [['pork chops',4,'each'],['apple',3,'each'],['onion',1,'each'],['butter',2,'tbsp'],['thyme',1,'tsp']]),
-  r('Carnitas', 'dinner', 'mexican', 1, 180, 6, 14, 520, 34, 3, 3, 820, [['pork shoulder',3,'lb'],['orange',1,'each'],['lime',2,'each'],['garlic',6,'clove'],['cumin',1,'tbsp'],['tortilla',12,'each']]),
-  r('Pork Fried Rice', 'dinner', 'chinese', 1, 25, 4, 9, 520, 22, 2, 4, 1180, [['cooked rice',4,'cup'],['pork loin',1,'lb'],['eggs',3,'each'],['frozen peas and carrots',1,'cup'],['soy sauce',0.25,'cup'],['sesame oil',1,'tbsp']]),
-  r('Bratwurst with Peppers', 'dinner', 'german', 1, 25, 4, 11, 620, 26, 3, 8, 1380, [['bratwurst',4,'each'],['bell pepper',3,'each'],['onion',1,'each'],['hoagie rolls',4,'each'],['olive oil',2,'tbsp']]),
-  r('Pulled Pork Sandwiches', 'dinner', 'american', 1, 240, 8, 14, 580, 32, 2, 18, 1080, [['pork shoulder',4,'lb'],['bbq sauce',2,'cup'],['hamburger buns',8,'each'],['coleslaw',2,'cup']]),
-  r('Salmon with Rice and Peas', 'dinner', 'american', 0, 25, 3, 14, 520, 34, 5, 4, 420, [['salmon fillet',1,'lb'],['white rice',1,'cup'],['frozen peas',2,'cup'],['lemon',1,'each']]),
-  r('Baked Tilapia', 'dinner', 'american', 0, 25, 4, 11, 320, 32, 1, 2, 520, [['tilapia fillet',1.5,'lb'],['lemon',2,'each'],['butter',3,'tbsp'],['garlic',3,'clove'],['parsley',0.25,'cup']]),
-  r('Shrimp Stir Fry', 'dinner', 'chinese', 0, 20, 4, 14, 380, 26, 4, 8, 1080, [['shrimp',1.5,'lb'],['broccoli',3,'cup'],['bell pepper',2,'each'],['soy sauce',0.25,'cup'],['garlic',3,'clove'],['ginger',1,'tbsp']]),
-  r('Shrimp Tacos', 'dinner', 'mexican', 0, 25, 4, 13, 480, 28, 5, 6, 920, [['shrimp',1.5,'lb'],['tortilla',12,'each'],['cabbage',2,'cup'],['lime',2,'each'],['cilantro',0.25,'cup'],['sour cream',0.5,'cup']]),
-  r('Fish Tacos', 'dinner', 'mexican', 0, 25, 4, 12, 480, 26, 5, 5, 880, [['white fish fillet',1.5,'lb'],['tortilla',12,'each'],['cabbage',2,'cup'],['lime',2,'each'],['chipotle mayo',0.25,'cup']]),
-  r('Seared Tuna Steaks', 'dinner', 'japanese', 0, 15, 4, 20, 420, 44, 1, 2, 520, [['tuna steak',1.5,'lb'],['sesame seeds',0.25,'cup'],['soy sauce',0.25,'cup'],['ginger',1,'tbsp'],['olive oil',2,'tbsp']]),
-  r('Baked Cod with Veggies', 'dinner', 'mediterranean', 0, 30, 4, 13, 360, 32, 4, 4, 480, [['cod fillet',1.5,'lb'],['zucchini',2,'each'],['cherry tomatoes',1,'cup'],['olive oil',3,'tbsp'],['garlic',3,'clove'],['lemon',1,'each']]),
-  r('Crab Cakes', 'dinner', 'american', 0, 30, 4, 18, 380, 22, 2, 3, 820, [['crab meat',1,'lb'],['breadcrumbs',1,'cup'],['eggs',1,'each'],['mayonnaise',3,'tbsp'],['dijon mustard',1,'tbsp'],['old bay seasoning',1,'tbsp']]),
-  r('Clam Chowder', 'dinner', 'american', 0, 40, 4, 14, 520, 22, 3, 6, 1080, [['canned clams',2,'can'],['potato',3,'each'],['onion',1,'each'],['celery',2,'stalk'],['bacon',4,'slice'],['heavy cream',2,'cup'],['clam juice',2,'cup']]),
-  r('Seafood Pasta', 'dinner', 'italian', 0, 30, 4, 18, 620, 34, 4, 6, 920, [['linguine',1,'lb'],['shrimp',0.5,'lb'],['mussels',1,'lb'],['canned tomatoes',1,'can'],['white wine',0.5,'cup'],['garlic',4,'clove']]),
-  r('Spaghetti with Marinara', 'dinner', 'italian', 1, 20, 4, 7, 520, 14, 6, 9, 640, [['spaghetti',1,'lb'],['marinara sauce',1,'jar'],['parmesan cheese',0.5,'cup']]),
-  r('Spaghetti Carbonara', 'dinner', 'italian', 0, 25, 4, 9, 620, 26, 3, 3, 1080, [['spaghetti',1,'lb'],['bacon',8,'oz'],['eggs',4,'each'],['parmesan cheese',1,'cup'],['black pepper',1,'tbsp'],['garlic',3,'clove']]),
-  r('Lasagna', 'dinner', 'italian', 1, 90, 8, 15, 580, 30, 4, 8, 1080, [['ground beef',1.5,'lb'],['lasagna noodles',1,'box'],['ricotta cheese',2,'cup'],['mozzarella cheese',2,'cup'],['marinara sauce',3,'cup'],['parmesan cheese',0.5,'cup'],['egg',1,'each']]),
-  r('Penne alla Vodka', 'dinner', 'italian', 0, 30, 4, 9, 580, 18, 3, 8, 820, [['penne',1,'lb'],['canned tomatoes',1,'can'],['heavy cream',1,'cup'],['vodka',0.5,'cup'],['onion',1,'each'],['garlic',3,'clove']]),
-  r('Baked Mac and Cheese', 'dinner', 'american', 1, 45, 6, 8, 620, 24, 2, 6, 820, [['macaroni',1,'lb'],['cheddar cheese',3,'cup'],['milk',2,'cup'],['butter',4,'tbsp'],['flour',0.25,'cup'],['breadcrumbs',0.5,'cup']]),
-  r('Pasta Primavera', 'dinner', 'italian', 0, 30, 4, 8, 420, 14, 5, 8, 520, [['penne',12,'oz'],['zucchini',1,'each'],['bell pepper',1,'each'],['cherry tomatoes',1,'cup'],['broccoli',2,'cup'],['olive oil',3,'tbsp'],['parmesan cheese',0.5,'cup']]),
-  r('Baked Ziti', 'dinner', 'italian', 1, 60, 6, 9, 520, 24, 4, 8, 920, [['ziti',1,'lb'],['marinara sauce',3,'cup'],['ricotta cheese',2,'cup'],['mozzarella cheese',2,'cup'],['italian sausage',1,'lb']]),
-  r('Stuffed Shells', 'dinner', 'italian', 1, 60, 6, 10, 520, 22, 4, 8, 980, [['jumbo shells',1,'box'],['ricotta cheese',2,'cup'],['mozzarella cheese',2,'cup'],['parmesan cheese',0.5,'cup'],['marinara sauce',3,'cup'],['spinach',2,'cup'],['eggs',2,'each']]),
-  r('Pasta e Fagioli', 'dinner', 'italian', 1, 40, 6, 7, 380, 16, 9, 6, 820, [['ditalini pasta',1,'cup'],['cannellini beans',2,'can'],['diced tomatoes',1,'can'],['onion',1,'each'],['carrot',2,'each'],['celery',2,'stalk'],['chicken broth',6,'cup']]),
-  r('Tacos al Pastor', 'dinner', 'mexican', 0, 40, 4, 13, 580, 32, 5, 12, 1020, [['pork shoulder',2,'lb'],['pineapple',1,'cup'],['tortilla',12,'each'],['onion',1,'each'],['cilantro',0.5,'cup'],['lime',2,'each'],['adobo sauce',3,'tbsp']]),
-  r('Burritos Grande', 'dinner', 'mexican', 1, 30, 4, 11, 680, 32, 12, 5, 1280, [['tortilla',4,'each'],['rice',1,'cup'],['black beans',1,'can'],['ground beef',1,'lb'],['cheddar cheese',1,'cup'],['salsa',0.5,'cup'],['sour cream',0.5,'cup']]),
-  r('Enchiladas Verdes', 'dinner', 'mexican', 1, 45, 4, 12, 620, 32, 6, 5, 1180, [['chicken breast',1.25,'lb'],['tortilla',10,'each'],['green enchilada sauce',2,'cup'],['monterey jack cheese',2,'cup'],['sour cream',0.5,'cup']]),
-  r('Beef Quesadillas', 'dinner', 'mexican', 1, 25, 4, 9, 580, 26, 4, 3, 1020, [['tortilla',8,'each'],['ground beef',1,'lb'],['cheddar cheese',2,'cup'],['salsa',0.5,'cup'],['sour cream',0.5,'cup']]),
-  r('Chile Relleno', 'dinner', 'mexican', 0, 45, 4, 10, 520, 22, 4, 6, 980, [['poblano pepper',6,'each'],['monterey jack cheese',2,'cup'],['eggs',4,'each'],['flour',0.5,'cup'],['tomato sauce',1,'cup']]),
-  r('Chicken Tamales', 'dinner', 'mexican', 0, 120, 8, 14, 420, 18, 4, 3, 820, [['masa harina',4,'cup'],['chicken broth',3,'cup'],['cooked chicken breast',2,'lb'],['corn husks',20,'each'],['salsa verde',2,'cup']]),
-  r('Sopes', 'dinner', 'mexican', 0, 45, 4, 9, 520, 22, 6, 4, 780, [['masa harina',2,'cup'],['refried beans',2,'cup'],['ground beef',0.5,'lb'],['lettuce',1,'cup'],['queso fresco',0.5,'cup'],['salsa',0.5,'cup']]),
-  r('Steak Fajitas', 'dinner', 'mexican', 0, 25, 4, 14, 620, 36, 6, 7, 1080, [['flank steak',1.5,'lb'],['bell pepper',3,'each'],['onion',1,'each'],['tortilla',8,'each'],['fajita seasoning',2,'tbsp'],['lime',2,'each']]),
-  r('Fried Rice', 'dinner', 'chinese', 1, 20, 4, 6, 420, 14, 2, 4, 1080, [['cooked rice',4,'cup'],['eggs',3,'each'],['frozen peas and carrots',1,'cup'],['soy sauce',0.25,'cup'],['green onion',3,'each'],['sesame oil',1,'tbsp']]),
-  r('Lo Mein', 'dinner', 'chinese', 1, 25, 4, 8, 520, 18, 3, 6, 1380, [['lo mein noodles',1,'lb'],['chicken breast',0.75,'lb'],['bell pepper',1,'each'],['carrot',2,'each'],['cabbage',2,'cup'],['soy sauce',0.25,'cup'],['sesame oil',1,'tbsp']]),
-  r("General Tso's Chicken", 'dinner', 'chinese', 1, 35, 4, 11, 620, 32, 2, 18, 1420, [['chicken breast',1.5,'lb'],['cornstarch',0.5,'cup'],['soy sauce',0.25,'cup'],['sugar',0.25,'cup'],['rice vinegar',3,'tbsp'],['garlic',4,'clove'],['rice',2,'cup']]),
-  r('Teriyaki Salmon', 'dinner', 'japanese', 0, 25, 4, 16, 520, 34, 2, 14, 1180, [['salmon fillet',1.5,'lb'],['teriyaki sauce',0.5,'cup'],['rice',2,'cup'],['broccoli',3,'cup'],['sesame seeds',1,'tbsp']]),
-  r('Stir Fried Tofu', 'dinner', 'chinese', 0, 25, 4, 8, 380, 20, 5, 8, 1080, [['tofu',1.5,'lb'],['broccoli',3,'cup'],['bell pepper',2,'each'],['soy sauce',0.25,'cup'],['ginger',1,'tbsp'],['cornstarch',1,'tbsp']]),
-  r('Kung Pao Chicken', 'dinner', 'chinese', 0, 30, 4, 12, 520, 32, 3, 10, 1380, [['chicken breast',1.5,'lb'],['peanuts',0.5,'cup'],['bell pepper',2,'each'],['dried chili peppers',6,'each'],['soy sauce',0.25,'cup'],['rice vinegar',2,'tbsp'],['sugar',2,'tbsp']]),
-  r('Sweet and Sour Chicken', 'dinner', 'chinese', 1, 30, 4, 10, 520, 28, 3, 26, 820, [['chicken breast',1.25,'lb'],['pineapple',1,'cup'],['bell pepper',2,'each'],['ketchup',0.5,'cup'],['rice vinegar',3,'tbsp'],['brown sugar',0.25,'cup']]),
-  r('Bibimbap', 'dinner', 'korean', 0, 35, 4, 12, 560, 28, 5, 8, 1080, [['beef sirloin',1,'lb'],['rice',2,'cup'],['spinach',2,'cup'],['carrot',2,'each'],['zucchini',1,'each'],['eggs',4,'each'],['gochujang',3,'tbsp']]),
-  r('Beef and Broccoli', 'dinner', 'chinese', 1, 25, 4, 12, 520, 32, 4, 6, 1220, [['beef sirloin',1.25,'lb'],['broccoli',4,'cup'],['soy sauce',0.25,'cup'],['oyster sauce',2,'tbsp'],['garlic',3,'clove'],['ginger',1,'tbsp'],['rice',2,'cup']]),
-  r('Mongolian Beef', 'dinner', 'chinese', 0, 25, 4, 13, 580, 32, 2, 14, 1420, [['beef flank steak',1.25,'lb'],['soy sauce',0.25,'cup'],['brown sugar',0.33,'cup'],['garlic',4,'clove'],['ginger',1,'tbsp'],['green onion',4,'each'],['rice',2,'cup']]),
-  r('Chicken Tikka Masala', 'dinner', 'indian', 0, 45, 4, 13, 620, 36, 3, 8, 980, [['chicken thighs',1.5,'lb'],['tomato sauce',1,'cup'],['heavy cream',1,'cup'],['garam masala',2,'tbsp'],['yogurt',0.5,'cup'],['onion',1,'each'],['garlic',4,'clove'],['rice',2,'cup']]),
-  r('Palak Paneer', 'dinner', 'indian', 0, 40, 4, 11, 420, 18, 5, 6, 820, [['paneer',1,'lb'],['spinach',2,'lb'],['onion',1,'each'],['garlic',4,'clove'],['ginger',2,'tbsp'],['heavy cream',0.5,'cup'],['garam masala',1,'tbsp']]),
-  r('Chana Masala', 'dinner', 'indian', 0, 35, 4, 7, 380, 14, 11, 8, 720, [['chickpeas',3,'can'],['diced tomatoes',1,'can'],['onion',1,'each'],['ginger',2,'tbsp'],['garlic',4,'clove'],['garam masala',1,'tbsp'],['rice',2,'cup']]),
-  r('Dal Tadka with Rice', 'dinner', 'indian', 0, 40, 4, 6, 420, 18, 12, 4, 620, [['yellow lentils',1.5,'cup'],['onion',1,'each'],['tomato',2,'each'],['garlic',4,'clove'],['ginger',1,'tbsp'],['cumin',1,'tbsp'],['rice',2,'cup']]),
-  r('Chicken Biryani', 'dinner', 'indian', 0, 75, 6, 14, 620, 28, 3, 6, 1080, [['chicken thighs',2,'lb'],['basmati rice',3,'cup'],['onion',2,'each'],['yogurt',1,'cup'],['biryani masala',2,'tbsp'],['garlic',5,'clove'],['ginger',2,'tbsp']]),
-  r('Lamb Vindaloo', 'dinner', 'indian', 0, 90, 4, 16, 580, 36, 3, 6, 820, [['lamb shoulder',1.5,'lb'],['onion',2,'each'],['garlic',6,'clove'],['ginger',2,'tbsp'],['vindaloo paste',3,'tbsp'],['rice',2,'cup']]),
-  r('Vegetable Curry', 'dinner', 'indian', 0, 35, 4, 8, 380, 10, 9, 8, 680, [['cauliflower',1,'head'],['potato',3,'each'],['peas',1,'cup'],['coconut milk',1,'can'],['curry powder',2,'tbsp'],['onion',1,'each'],['rice',2,'cup']]),
-  r('Stuffed Bell Peppers', 'dinner', 'american', 1, 55, 4, 8, 420, 22, 6, 8, 820, [['bell pepper',4,'each'],['ground beef',1,'lb'],['rice',1,'cup'],['diced tomatoes',1,'can'],['onion',1,'each'],['cheddar cheese',1,'cup']]),
-  r('Veggie Burgers', 'dinner', 'american', 1, 20, 4, 7, 380, 14, 6, 6, 720, [['veggie patty',4,'each'],['hamburger buns',4,'each'],['lettuce',1,'cup'],['tomato',1,'each'],['red onion',0.5,'each'],['ketchup',2,'tbsp']]),
-  r('Vegetarian Chili', 'dinner', 'american', 0, 40, 6, 7, 320, 16, 14, 8, 720, [['black beans',2,'can'],['kidney beans',2,'can'],['diced tomatoes',2,'can'],['onion',1,'each'],['bell pepper',2,'each'],['chili powder',2,'tbsp']]),
-  r('Veggie Stir Fry', 'dinner', 'chinese', 0, 20, 4, 6, 260, 10, 6, 8, 820, [['broccoli',2,'cup'],['bell pepper',2,'each'],['carrot',2,'each'],['snow peas',1,'cup'],['mushrooms',1,'cup'],['soy sauce',0.25,'cup'],['sesame oil',1,'tbsp']]),
-  r('Black Bean Burgers', 'dinner', 'american', 0, 25, 4, 6, 360, 14, 9, 5, 720, [['black beans',2,'can'],['breadcrumbs',0.5,'cup'],['egg',1,'each'],['onion',0.5,'each'],['cumin',1,'tsp'],['hamburger buns',4,'each']]),
-  r('Cauliflower Steaks', 'dinner', 'mediterranean', 0, 30, 4, 7, 220, 8, 6, 7, 380, [['cauliflower',2,'head'],['olive oil',0.25,'cup'],['garlic',4,'clove'],['parmesan cheese',0.5,'cup'],['lemon',1,'each']]),
-  r('Slow-Cooker Chili', 'dinner', 'american', 1, 15, 6, 10, 480, 30, 10, 8, 720, [['ground beef',1,'lb'],['kidney beans',2,'can'],['diced tomatoes',2,'can'],['onion',1,'each'],['chili powder',2,'tbsp']]),
-  r('Slow-Cooker Pot Roast', 'dinner', 'american', 0, 20, 6, 15, 520, 40, 4, 6, 820, [['beef chuck roast',3,'lb'],['potato',4,'each'],['carrot',4,'each'],['onion',2,'each'],['beef broth',2,'cup']]),
-  r('Slow-Cooker Pulled Pork', 'dinner', 'american', 1, 15, 8, 14, 520, 30, 1, 18, 1180, [['pork shoulder',4,'lb'],['bbq sauce',2,'cup'],['apple cider vinegar',0.25,'cup'],['brown sugar',0.25,'cup'],['hamburger buns',8,'each']]),
-  r('Slow-Cooker Beef Stew', 'dinner', 'american', 0, 20, 6, 14, 480, 32, 5, 8, 820, [['beef chuck',2,'lb'],['potato',4,'each'],['carrot',4,'each'],['onion',2,'each'],['beef broth',4,'cup'],['tomato paste',3,'tbsp']]),
-  r('Slow-Cooker Chicken Tacos', 'dinner', 'mexican', 1, 10, 4, 9, 420, 34, 5, 4, 880, [['chicken breast',1.5,'lb'],['salsa',1.5,'cup'],['taco seasoning',2,'tbsp'],['tortilla',12,'each'],['cheddar cheese',1,'cup']]),
-  r('Sheet-Pan Sausage and Potatoes', 'dinner', 'american', 1, 40, 4, 10, 580, 22, 4, 6, 1280, [['italian sausage',1.5,'lb'],['potato',4,'each'],['bell pepper',2,'each'],['onion',1,'each'],['olive oil',3,'tbsp']]),
-  r('One-Pot Chicken and Rice', 'dinner', 'american', 1, 40, 4, 8, 520, 30, 2, 4, 820, [['chicken thighs',1.5,'lb'],['rice',1.5,'cup'],['chicken broth',3,'cup'],['onion',1,'each'],['garlic',3,'clove'],['thyme',1,'tsp']]),
-  r('Chicken Pot Pie', 'dinner', 'american', 1, 60, 6, 11, 580, 24, 3, 4, 920, [['cooked chicken breast',1.5,'lb'],['pie crust',2,'each'],['frozen peas and carrots',2,'cup'],['onion',1,'each'],['butter',4,'tbsp'],['flour',0.33,'cup'],['chicken broth',2,'cup'],['milk',0.75,'cup']]),
-  r('Tonkotsu Pork Ramen', 'dinner', 'japanese', 0, 45, 4, 13, 680, 32, 4, 8, 2180, [['ramen noodles',4,'package'],['pork belly',1,'lb'],['chicken broth',8,'cup'],['miso paste',3,'tbsp'],['soft-boiled egg',4,'each'],['green onion',4,'each'],['bean sprouts',1,'cup']]),
-
-  // ============================================================
-  // SIDE (50)
-  // ============================================================
-  r('White Rice', 'side', 'asian', 1, 20, 4, 1.5, 200, 4, 1, 0, 10, [['white rice',1,'cup'],['water',2,'cup'],['salt',0.5,'tsp']]),
-  r('Brown Rice', 'side', 'american', 1, 45, 4, 1.75, 220, 5, 4, 1, 10, [['brown rice',1,'cup'],['water',2.5,'cup'],['salt',0.5,'tsp']]),
-  r('Jasmine Rice', 'side', 'asian', 1, 20, 4, 1.75, 200, 4, 1, 0, 10, [['jasmine rice',1,'cup'],['water',1.75,'cup']]),
-  r('Basmati Rice', 'side', 'indian', 1, 20, 4, 2, 200, 4, 1, 0, 10, [['basmati rice',1,'cup'],['water',1.75,'cup'],['butter',1,'tbsp']]),
-  r('Quinoa', 'side', 'american', 0, 20, 4, 3, 220, 8, 5, 2, 15, [['quinoa',1,'cup'],['water',2,'cup'],['salt',0.5,'tsp']]),
-  r('Couscous', 'side', 'mediterranean', 1, 10, 4, 2.25, 180, 6, 2, 0, 10, [['couscous',1,'cup'],['water',1.25,'cup'],['butter',1,'tbsp'],['salt',0.5,'tsp']]),
-  r('Farro', 'side', 'italian', 0, 30, 4, 3, 200, 7, 5, 1, 10, [['farro',1,'cup'],['water',2.5,'cup'],['salt',0.5,'tsp'],['olive oil',1,'tbsp']]),
-  r('Mashed Potatoes', 'side', 'american', 1, 30, 6, 3, 260, 4, 3, 2, 420, [['potato',3,'lb'],['butter',4,'tbsp'],['milk',0.5,'cup'],['salt',1,'tsp']]),
-  r('Roasted Potatoes', 'side', 'american', 1, 40, 4, 2.5, 240, 4, 4, 2, 520, [['potato',2,'lb'],['olive oil',3,'tbsp'],['garlic powder',1,'tsp'],['rosemary',1,'tsp'],['salt',1,'tsp']]),
-  r('French Fries', 'side', 'american', 1, 30, 4, 3, 340, 4, 4, 1, 380, [['frozen french fries',1,'lb'],['vegetable oil',2,'tbsp'],['salt',1,'tsp']]),
-  r('Sweet Potato Wedges', 'side', 'american', 1, 35, 4, 3, 220, 3, 5, 8, 320, [['sweet potato',2,'lb'],['olive oil',2,'tbsp'],['paprika',1,'tsp'],['salt',0.5,'tsp']]),
-  r('Baked Sweet Potato', 'side', 'american', 1, 55, 4, 2.5, 180, 4, 6, 8, 80, [['sweet potato',4,'each'],['butter',2,'tbsp']]),
-  r('Rice Pilaf', 'side', 'mediterranean', 1, 30, 4, 2.75, 240, 5, 2, 2, 420, [['rice',1,'cup'],['chicken broth',2,'cup'],['onion',0.5,'each'],['butter',2,'tbsp']]),
-  r('Spanish Rice', 'side', 'mexican', 1, 30, 4, 3, 240, 5, 2, 3, 620, [['rice',1,'cup'],['chicken broth',2,'cup'],['tomato sauce',0.5,'cup'],['onion',0.5,'each'],['garlic',2,'clove']]),
-  r('Cornbread', 'side', 'american', 1, 30, 6, 3, 240, 4, 2, 8, 420, [['cornmeal',1,'cup'],['flour',1,'cup'],['milk',1,'cup'],['eggs',2,'each'],['butter',4,'tbsp'],['sugar',2,'tbsp']]),
-  r('Roasted Broccoli', 'side', 'american', 1, 20, 4, 2.5, 100, 4, 4, 2, 280, [['broccoli',1.5,'lb'],['olive oil',2,'tbsp'],['garlic',3,'clove'],['salt',0.5,'tsp']]),
-  r('Steamed Broccoli', 'side', 'american', 1, 10, 4, 2, 60, 4, 4, 2, 40, [['broccoli',1.5,'lb'],['salt',0.25,'tsp']]),
-  r('Roasted Brussels Sprouts', 'side', 'american', 0, 30, 4, 3, 140, 5, 5, 3, 320, [['brussels sprouts',1.5,'lb'],['olive oil',2,'tbsp'],['balsamic vinegar',1,'tbsp'],['salt',0.5,'tsp']]),
-  r('Sauteed Spinach', 'side', 'american', 0, 10, 4, 3, 80, 3, 3, 1, 180, [['spinach',1,'lb'],['garlic',3,'clove'],['olive oil',2,'tbsp'],['lemon',0.5,'each']]),
-  r('Roasted Carrots', 'side', 'american', 1, 30, 4, 2, 120, 2, 4, 8, 280, [['carrots',1.5,'lb'],['olive oil',2,'tbsp'],['honey',1,'tbsp'],['thyme',1,'tsp']]),
-  r('Glazed Carrots', 'side', 'american', 1, 20, 4, 2, 140, 1, 3, 12, 220, [['carrots',1.5,'lb'],['butter',2,'tbsp'],['brown sugar',2,'tbsp']]),
-  r('Grilled Asparagus', 'side', 'american', 0, 15, 4, 5, 80, 3, 3, 2, 180, [['asparagus',1.5,'lb'],['olive oil',2,'tbsp'],['lemon',0.5,'each'],['salt',0.5,'tsp']]),
-  r('Sauteed Asparagus', 'side', 'american', 0, 12, 4, 5, 80, 3, 3, 2, 180, [['asparagus',1.5,'lb'],['butter',2,'tbsp'],['garlic',2,'clove']]),
-  r('Corn on the Cob', 'side', 'american', 1, 15, 4, 3, 160, 4, 4, 6, 20, [['corn on the cob',4,'each'],['butter',3,'tbsp'],['salt',0.5,'tsp']]),
-  r('Creamed Corn', 'side', 'american', 1, 20, 4, 3.5, 260, 5, 3, 10, 380, [['frozen corn',4,'cup'],['heavy cream',0.5,'cup'],['butter',2,'tbsp'],['flour',1,'tbsp'],['sugar',1,'tbsp']]),
-  r('Green Beans Almondine', 'side', 'french', 0, 20, 4, 3.5, 140, 4, 5, 3, 220, [['green beans',1.5,'lb'],['sliced almonds',0.25,'cup'],['butter',2,'tbsp'],['lemon',0.5,'each']]),
-  r('Steamed Green Beans', 'side', 'american', 1, 10, 4, 2.5, 60, 3, 4, 3, 20, [['green beans',1.5,'lb'],['salt',0.25,'tsp']]),
-  r('Peas with Butter', 'side', 'american', 1, 10, 4, 2, 120, 5, 4, 6, 180, [['frozen peas',4,'cup'],['butter',2,'tbsp'],['salt',0.5,'tsp']]),
-  r('Roasted Cauliflower', 'side', 'american', 0, 30, 4, 3, 120, 3, 4, 3, 320, [['cauliflower',1,'head'],['olive oil',3,'tbsp'],['garlic powder',1,'tsp'],['paprika',1,'tsp']]),
-  r('Sauteed Mushrooms', 'side', 'american', 0, 15, 4, 4, 100, 4, 2, 2, 220, [['mushrooms',1,'lb'],['butter',3,'tbsp'],['garlic',3,'clove'],['thyme',1,'tsp']]),
-  r('Roasted Zucchini', 'side', 'american', 1, 25, 4, 2.5, 80, 3, 2, 4, 220, [['zucchini',2,'lb'],['olive oil',2,'tbsp'],['parmesan cheese',0.25,'cup']]),
-  r('Grilled Zucchini', 'side', 'american', 1, 15, 4, 2.5, 60, 2, 2, 4, 180, [['zucchini',2,'lb'],['olive oil',2,'tbsp'],['italian seasoning',1,'tsp']]),
-  r('Roasted Butternut Squash', 'side', 'american', 0, 40, 4, 4, 180, 2, 5, 8, 180, [['butternut squash',1,'each'],['olive oil',2,'tbsp'],['cinnamon',0.5,'tsp'],['maple syrup',1,'tbsp']]),
-  r('Creamed Spinach', 'side', 'american', 0, 20, 4, 4, 220, 7, 3, 3, 420, [['spinach',1.5,'lb'],['heavy cream',0.5,'cup'],['butter',2,'tbsp'],['parmesan cheese',0.25,'cup'],['nutmeg',0.25,'tsp']]),
-  r('Sauteed Cabbage', 'side', 'american', 0, 20, 4, 2.5, 100, 2, 4, 5, 180, [['cabbage',1,'head'],['butter',2,'tbsp'],['bacon',2,'slice'],['salt',0.5,'tsp']]),
-  r('Simple Green Salad', 'side', 'american', 1, 8, 4, 3, 120, 2, 2, 2, 220, [['mixed greens',6,'cup'],['cucumber',1,'each'],['cherry tomatoes',1,'cup'],['vinaigrette',3,'tbsp']]),
-  r('Caesar Side Salad', 'side', 'american', 1, 10, 4, 4, 180, 5, 2, 1, 420, [['romaine lettuce',4,'cup'],['parmesan cheese',0.25,'cup'],['croutons',0.25,'cup'],['caesar dressing',3,'tbsp']]),
-  r('Greek Side Salad', 'side', 'greek', 0, 8, 4, 4.5, 180, 5, 3, 4, 480, [['romaine lettuce',4,'cup'],['cucumber',1,'each'],['tomato',1,'each'],['feta cheese',0.25,'cup'],['kalamata olives',2,'tbsp'],['olive oil',2,'tbsp']]),
-  r('Coleslaw', 'side', 'american', 1, 10, 6, 3, 160, 1, 2, 10, 280, [['shredded cabbage',4,'cup'],['carrot',1,'each'],['mayonnaise',0.5,'cup'],['apple cider vinegar',2,'tbsp'],['sugar',1,'tbsp']]),
-  r('Cucumber Salad', 'side', 'american', 1, 10, 4, 2, 60, 1, 1, 6, 220, [['cucumber',2,'each'],['red onion',0.25,'each'],['vinegar',2,'tbsp'],['dill',1,'tbsp'],['sugar',1,'tsp']]),
-  r('Tomato Salad', 'side', 'italian', 0, 10, 4, 3.5, 120, 2, 2, 6, 180, [['tomato',4,'each'],['red onion',0.25,'each'],['basil',0.25,'cup'],['olive oil',2,'tbsp'],['balsamic vinegar',1,'tbsp']]),
-  r('Potato Salad', 'side', 'american', 1, 30, 6, 4, 240, 4, 3, 3, 420, [['potato',2,'lb'],['mayonnaise',0.5,'cup'],['dijon mustard',1,'tbsp'],['hard boiled egg',3,'each'],['celery',2,'stalk']]),
-  r('Macaroni Salad', 'side', 'american', 1, 20, 6, 3.5, 280, 6, 2, 4, 380, [['macaroni',1,'lb'],['mayonnaise',0.75,'cup'],['celery',2,'stalk'],['bell pepper',1,'each'],['red onion',0.25,'each']]),
-  r('Garlic Bread', 'side', 'italian', 1, 15, 4, 2.5, 260, 6, 1, 2, 420, [['french bread',1,'loaf'],['butter',4,'tbsp'],['garlic',4,'clove'],['parsley',2,'tbsp']]),
-  r('Dinner Rolls', 'side', 'american', 1, 20, 6, 2.5, 180, 4, 1, 3, 320, [['dinner rolls',6,'each'],['butter',2,'tbsp']]),
-  r('Focaccia', 'side', 'italian', 0, 30, 6, 3.5, 220, 5, 2, 1, 420, [['focaccia',1,'loaf'],['olive oil',2,'tbsp'],['rosemary',1,'tbsp'],['sea salt',1,'tsp']]),
-  r('Flatbread', 'side', 'mediterranean', 1, 20, 4, 3, 180, 6, 2, 1, 380, [['flatbread',4,'each'],['olive oil',2,'tbsp'],['garlic',2,'clove']]),
-  r('Biscuits', 'side', 'american', 1, 25, 6, 3, 260, 4, 1, 2, 620, [['biscuit mix',2,'cup'],['milk',0.75,'cup'],['butter',3,'tbsp']]),
-  r('Refried Beans', 'side', 'mexican', 1, 15, 4, 2.5, 180, 9, 8, 1, 580, [['refried beans',2,'can'],['cheddar cheese',0.5,'cup'],['onion',0.25,'each'],['cumin',1,'tsp']]),
-  r('Black Beans', 'side', 'mexican', 1, 20, 4, 2, 180, 10, 10, 1, 380, [['black beans',2,'can'],['onion',0.5,'each'],['garlic',2,'clove'],['cumin',1,'tsp'],['lime',0.5,'each']]),
-  r('Pinto Beans', 'side', 'mexican', 1, 20, 4, 2, 180, 10, 10, 1, 380, [['pinto beans',2,'can'],['onion',0.5,'each'],['garlic',2,'clove'],['chili powder',1,'tsp']])
-];
-
 function seed() {
+  const recipes = loadRecipes();
+
   db.exec('DELETE FROM recipe_ingredients; DELETE FROM recipes;');
-  if (!RECIPES.length) {
-    console.log('Seed file is empty — no recipes loaded.');
+  if (recipes === null) {
+    console.log('Recipe tables wiped. Database is now empty.');
     return;
   }
+  if (!recipes.length) {
+    console.log('Seed JSON is empty — recipe tables wiped, no rows inserted.');
+    return;
+  }
+
   const insertRecipe = db.prepare(`INSERT INTO recipes
-    (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
-  const insertIng = db.prepare(`INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)`);
+    (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost,
+     calories, protein, fiber, sugar, sodium, favorite, notes)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const insertIng = db.prepare(`INSERT INTO recipe_ingredients
+    (recipe_id, name, quantity, unit, brand_preference)
+    VALUES (?, ?, ?, ?, ?)`);
+
   const tx = db.transaction(() => {
-    for (const rec of RECIPES) {
+    for (const r of recipes) {
       const info = insertRecipe.run(
-        rec.name, rec.meal_type, rec.cuisine || null, rec.kid_friendly || 0, rec.prep_time, rec.servings, rec.est_cost,
-        rec.calories || null, rec.protein || null, rec.fiber || null, rec.sugar || null, rec.sodium || null, rec.favorite || 0
+        r.name,
+        r.meal_type,
+        r.cuisine || null,
+        r.kid_friendly ? 1 : 0,
+        r.prep_time || 30,
+        r.servings || 4,
+        typeof r.est_cost === 'number' ? r.est_cost : 10,
+        r.calories ?? null,
+        r.protein  ?? null,
+        r.fiber    ?? null,
+        r.sugar    ?? null,
+        r.sodium   ?? null,
+        r.favorite ? 1 : 0,
+        r.notes || null
       );
-      for (const ing of rec.ingredients) {
-        insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit, ing.brand_preference);
+      for (const ing of (r.ingredients || [])) {
+        insertIng.run(
+          info.lastInsertRowid,
+          ing.name,
+          typeof ing.quantity === 'number' && ing.quantity > 0 ? ing.quantity : 1,
+          ing.unit || 'each',
+          ing.brand_preference || null
+        );
       }
     }
   });
   tx();
+
   const counts = {};
-  for (const rec of RECIPES) counts[rec.meal_type] = (counts[rec.meal_type] || 0) + 1;
-  console.log(`Seeded ${RECIPES.length} recipes:`);
-  for (const k of Object.keys(counts).sort()) console.log(`  ${k}: ${counts[k]}`);
+  for (const r of recipes) counts[r.meal_type] = (counts[r.meal_type] || 0) + 1;
+  console.log(`Seeded ${recipes.length} recipes:`);
+  for (const k of Object.keys(counts).sort()) console.log(`  ${k.padEnd(10)} ${counts[k]}`);
 }
 
 seed();
