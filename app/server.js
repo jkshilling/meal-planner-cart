@@ -7,6 +7,18 @@ const SqliteStore = require('better-sqlite3-session-store')(session);
 // Loads db.js which initializes the schema on require.
 const db = require('./db');
 
+// Boot-time guard: in production, refuse to start without a real session
+// secret. Before this guard, a missing/broken .env (e.g. systemd's
+// EnvironmentFile silently failing on a permissions error) would let the
+// app fall through to the public dev fallback string baked into source —
+// silently making every issued cookie forgeable by anyone who reads the
+// repo. Crashing loudly is the correct failure mode.
+const SESSION_SECRET = process.env.SESSION_SECRET;
+if (process.env.NODE_ENV === 'production' && !SESSION_SECRET) {
+  console.error('FATAL: SESSION_SECRET must be set when NODE_ENV=production. Refusing to boot.');
+  process.exit(1);
+}
+
 const app = express();
 
 // Trust the nginx proxy in front of us so secure-cookie + ip detection work.
@@ -26,7 +38,7 @@ app.use(session({
     expired: { clear: true, intervalMs: 15 * 60 * 1000 }  // sweep expired every 15m
   }),
   name: 'mp.sid',
-  secret: process.env.SESSION_SECRET || 'dev-only-replace-in-env',
+  secret: SESSION_SECRET || 'dev-only-replace-in-env',
   resave: false,
   saveUninitialized: false,
   rolling: true,  // refresh expiry on every request so active sessions don't expire mid-use
