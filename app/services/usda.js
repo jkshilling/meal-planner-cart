@@ -205,10 +205,15 @@ async function searchFood(rawName) {
       throw new Error(`FDC ${res.status}`);
     }
     const data = await res.json();
-    // Belt-and-suspenders: filter to candidates whose descriptions actually
-    // contain every query word. Sometimes FDC's requireAllWords still lets
-    // partial-stem matches through.
-    const candidates = (data.foods || []).filter(f => descContainsAllWords(f.description, ingredientName));
+    // Filter to candidates that:
+    //   1. Actually contain every query word in the description (FDC's
+    //      requireAllWords sometimes lets partial-stem matches through)
+    //   2. Aren't branded prepared meals (CARRABBA'S, OLIVE GARDEN, etc.) —
+    //      better to record no match than to use restaurant nutrition for
+    //      an ingredient.
+    const candidates = (data.foods || [])
+      .filter(f => descContainsAllWords(f.description, ingredientName))
+      .filter(f => !looksBranded(f.description || ''));
     candidates.sort((a, b) => scoreFood(b, ingredientName) - scoreFood(a, ingredientName));
     const food = candidates[0] || null;
     const nutrients = food ? extractNutrients(food) : {
