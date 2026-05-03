@@ -93,19 +93,37 @@ router.post('/settings', requireAuth, (req, res) => {
       uid
     );
 
-  // Members: replace with submitted set
+  // Members: replace with submitted set. Form gives us four parallel arrays
+  // for per-meal behavior (member_breakfast, member_lunch, member_snack,
+  // member_dinner), each one entry per row in the table. We collapse them
+  // into a single meal_behavior_json per member.
   db.prepare('DELETE FROM household_members WHERE profile_id = ?').run(p.id);
   const names = [].concat(body.member_name || []);
   const labels = [].concat(body.member_label || []);
-  const lunches = [].concat(body.member_lunch || []);
-  const insertMember = db.prepare('INSERT INTO household_members (profile_id, name, label, lunch_behavior) VALUES (?, ?, ?, ?)');
+  const breakfasts = [].concat(body.member_breakfast || []);
+  const lunches    = [].concat(body.member_lunch     || []);
+  const snacks     = [].concat(body.member_snack     || []);
+  const dinners    = [].concat(body.member_dinner    || []);
+  const insertMember = db.prepare(
+    'INSERT INTO household_members (profile_id, name, label, meal_behavior_json) VALUES (?, ?, ?, ?)'
+  );
+  const sanitize = (v) => (['plan', 'school', 'skip'].includes(v) ? v : 'plan');
+  const mealBehaviorAt = (i) => JSON.stringify({
+    breakfast: sanitize(breakfasts[i]),
+    lunch:     sanitize(lunches[i]),
+    snack:     sanitize(snacks[i]),
+    dinner:    sanitize(dinners[i])
+  });
   for (let i = 0; i < names.length; i++) {
     const name = (names[i] || '').trim();
     if (!name) continue;
-    insertMember.run(p.id, name, labels[i] || 'adult', lunches[i] || 'plan');
+    insertMember.run(p.id, name, labels[i] || 'adult', mealBehaviorAt(i));
   }
   if (!names.filter(n => n && n.trim()).length) {
-    insertMember.run(p.id, 'Me', 'adult', 'plan');
+    insertMember.run(
+      p.id, 'Me', 'adult',
+      JSON.stringify({ breakfast: 'plan', lunch: 'plan', snack: 'plan', dinner: 'plan' })
+    );
   }
 
   res.redirect('/settings?saved=1');

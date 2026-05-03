@@ -70,9 +70,10 @@ function createHouseholdForUser(userId) {
     'INSERT INTO household_profiles (name, user_id) VALUES (?, ?)'
   ).run('My Household', userId);
   // Seed a single adult member so the planner has something to work with.
+  // meal_behavior_json defaults to "plan everything" via the schema default.
   db.prepare(
-    'INSERT INTO household_members (profile_id, name, label, lunch_behavior) VALUES (?, ?, ?, ?)'
-  ).run(info.lastInsertRowid, 'Me', 'adult', 'plan');
+    'INSERT INTO household_members (profile_id, name, label) VALUES (?, ?, ?)'
+  ).run(info.lastInsertRowid, 'Me', 'adult');
   return info.lastInsertRowid;
 }
 

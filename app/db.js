@@ -49,7 +49,12 @@ CREATE TABLE IF NOT EXISTS household_members (
   profile_id INTEGER NOT NULL,
   name TEXT NOT NULL,
   label TEXT NOT NULL DEFAULT 'adult',
-  lunch_behavior TEXT NOT NULL DEFAULT 'plan',
+  -- Per-meal behavior. JSON map from meal_type → 'plan' | 'school' | 'skip'.
+  -- 'school' and 'skip' both mean "don't plan this meal for this person";
+  -- the distinction is cosmetic (different mental model for the user) but
+  -- the planner treats them identically. dinersFor(profile, mealType) counts
+  -- only members whose value for that meal_type is 'plan'.
+  meal_behavior_json TEXT NOT NULL DEFAULT '{"breakfast":"plan","lunch":"plan","snack":"plan","dinner":"plan"}',
   FOREIGN KEY (profile_id) REFERENCES household_profiles(id) ON DELETE CASCADE
 );
 
@@ -334,6 +339,36 @@ dropColumnIfExists('shopping_items', 'brand_preference');
 // databases; new ones never create them in the first place.
 db.exec('DROP TABLE IF EXISTS walmart_matches');
 db.exec('DROP TABLE IF EXISTS automation_runs');
+
+// household_members.lunch_behavior → meal_behavior_json migration.
+// The old single column gated lunch only ('plan' | 'school' | 'skip').
+// The new JSON column generalizes that to all meal types so the same kid
+// can have school breakfast, school lunch, planned snack, planned dinner.
+// Backfill: for each existing member, lift lunch_behavior into the lunch
+// slot of meal_behavior_json and default the other three meals to 'plan'.
+ensureColumn(
+  'household_members',
+  'meal_behavior_json',
+  `TEXT NOT NULL DEFAULT '{"breakfast":"plan","lunch":"plan","snack":"plan","dinner":"plan"}'`
+);
+{
+  // Only run the backfill while the legacy column still exists; afterwards
+  // the dropColumnIfExists below removes it and this block becomes a no-op.
+  const cols = db.prepare('PRAGMA table_info(household_members)').all().map(c => c.name);
+  if (cols.includes('lunch_behavior')) {
+    db.prepare(`
+      UPDATE household_members
+         SET meal_behavior_json = json_object(
+           'breakfast', 'plan',
+           'lunch',     COALESCE(lunch_behavior, 'plan'),
+           'snack',     'plan',
+           'dinner',    'plan'
+         )
+       WHERE lunch_behavior IS NOT NULL
+    `).run();
+  }
+}
+dropColumnIfExists('household_members', 'lunch_behavior');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json

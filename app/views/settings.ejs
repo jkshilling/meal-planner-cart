@@ -37,11 +37,27 @@
 
   <div class="card">
     <h2>Household members</h2>
-    <p class="muted">Add one row per person. Lunch behavior controls whether that person's lunch is planned, is a school lunch (skipped in the plan), or is skipped entirely.</p>
+    <p class="muted">Add one row per person. For each meal, choose <em>plan</em> if you want a planned meal for that person, <em>school</em> if it's covered elsewhere (school lunch, free breakfast program), or <em>skip</em> if they don't eat it. <em>school</em> and <em>skip</em> behave the same way for the planner — both mean "don't shop or schedule for this meal."</p>
+    <%
+      // Default behavior for new/unsaved rows.
+      var defaultBehavior = { breakfast: 'plan', lunch: 'plan', snack: 'plan', dinner: 'plan' };
+      var rows = profile.members.length
+        ? profile.members
+        : [{ name: '', label: 'adult', meal_behavior: defaultBehavior }];
+    %>
     <table class="grid-table">
-      <thead><tr><th>Name</th><th>Label</th><th>Lunch</th></tr></thead>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Label</th>
+          <th>Breakfast</th>
+          <th>Lunch</th>
+          <th>Snack</th>
+          <th>Dinner</th>
+        </tr>
+      </thead>
       <tbody id="members">
-        <% (profile.members.length ? profile.members : [{name:'',label:'adult',lunch_behavior:'plan'}]).forEach(function(m) { %>
+        <% rows.forEach(function(m) { var mb = m.meal_behavior || defaultBehavior; %>
           <tr>
             <td><input name="member_name" value="<%= m.name %>" /></td>
             <td><select name="member_label">
@@ -49,11 +65,13 @@
               <option value="child" <%= m.label==='child' ? 'selected' : '' %>>child</option>
               <option value="teen" <%= m.label==='teen' ? 'selected' : '' %>>teen</option>
             </select></td>
-            <td><select name="member_lunch">
-              <option value="plan" <%= m.lunch_behavior==='plan' ? 'selected' : '' %>>plan lunch</option>
-              <option value="school" <%= m.lunch_behavior==='school' ? 'selected' : '' %>>school lunch</option>
-              <option value="skip" <%= m.lunch_behavior==='skip' ? 'selected' : '' %>>skip lunch</option>
-            </select></td>
+            <% ['breakfast','lunch','snack','dinner'].forEach(function(meal) { %>
+              <td><select name="member_<%= meal %>">
+                <option value="plan"   <%= mb[meal]==='plan'   ? 'selected' : '' %>>plan</option>
+                <option value="school" <%= mb[meal]==='school' ? 'selected' : '' %>>school</option>
+                <option value="skip"   <%= mb[meal]==='skip'   ? 'selected' : '' %>>skip</option>
+              </select></td>
+            <% }) %>
           </tr>
         <% }) %>
       </tbody>
@@ -171,9 +189,16 @@
 function addMember() {
   var tbody = document.getElementById('members');
   var tr = document.createElement('tr');
+  function mealCell(meal) {
+    return '<td><select name="member_' + meal + '">' +
+      '<option value="plan">plan</option>' +
+      '<option value="school">school</option>' +
+      '<option value="skip">skip</option>' +
+      '</select></td>';
+  }
   tr.innerHTML = '<td><input name="member_name"/></td>' +
     '<td><select name="member_label"><option value="adult">adult</option><option value="child">child</option><option value="teen">teen</option></select></td>' +
-    '<td><select name="member_lunch"><option value="plan">plan lunch</option><option value="school">school lunch</option><option value="skip">skip lunch</option></select></td>';
+    mealCell('breakfast') + mealCell('lunch') + mealCell('snack') + mealCell('dinner');
   tbody.appendChild(tr);
 }
 </script>

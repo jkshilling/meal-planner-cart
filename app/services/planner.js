@@ -7,10 +7,19 @@ function parseJSON(str, fallback) {
   try { return JSON.parse(str); } catch (e) { return fallback; }
 }
 
+const DEFAULT_MEAL_BEHAVIOR = { breakfast: 'plan', lunch: 'plan', snack: 'plan', dinner: 'plan' };
+
 function loadProfile(profileId) {
   const profile = db.prepare('SELECT * FROM household_profiles WHERE id = ?').get(profileId);
   if (!profile) return null;
   profile.members = db.prepare('SELECT * FROM household_members WHERE profile_id = ?').all(profileId);
+  // Parse per-member meal behavior; fall back to "plan everything" if the
+  // JSON is malformed or missing keys (e.g. row migrated from an old schema
+  // where some meal types weren't represented).
+  for (const m of profile.members) {
+    const parsed = parseJSON(m.meal_behavior_json, {});
+    m.meal_behavior = { ...DEFAULT_MEAL_BEHAVIOR, ...parsed };
+  }
   profile.meal_types = parseJSON(profile.meal_types_json, ['breakfast', 'lunch', 'snack', 'dinner'])
     .filter(t => t !== 'side');  // 'side' is no longer a slot type — paired with mains instead
   profile.pair_sides_with = parseJSON(profile.pair_sides_with_json, ['dinner']);
@@ -82,26 +91,35 @@ function recipePassesHardFilters(recipe, profile) {
   return true;
 }
 
-function householdSize(profile) {
-  return Math.max(1, profile.members.length);
-}
-
 function hasKids(profile) {
   return profile.members.some(m => (m.label || '').toLowerCase() === 'child');
 }
 
-function lunchScopeForSlot(profile) {
-  const planLunch = profile.members.filter(m => m.lunch_behavior === 'plan');
-  const schoolLunch = profile.members.filter(m => m.lunch_behavior === 'school');
-  const skipLunch = profile.members.filter(m => m.lunch_behavior === 'skip');
-  return { planLunch, schoolLunch, skipLunch };
+// How many household members actually eat the given meal type (i.e. their
+// per-meal behavior is 'plan' rather than 'school' or 'skip'). Used in place
+// of the old householdSize() so portion math and cost estimates reflect the
+// people who'll actually be at the table for that meal — not the total
+// household head-count. Returns at least 1 to avoid divide-by-zero in
+// scoring; callers that need to gate slot generation check === 0 separately
+// against the raw count via the same predicate.
+function dinersFor(profile, mealType) {
+  const n = profile.members.filter(
+    m => m.meal_behavior && m.meal_behavior[mealType] === 'plan'
+  ).length;
+  return n;
 }
 
 function scoreRecipe(recipe, ctx) {
   const { profile, usedCounts, remainingBudget, slotsLeft, mealType, costOverrides } = ctx;
   const perSlotBudget = slotsLeft > 0 ? remainingBudget / slotsLeft : recipe.est_cost;
   const rawCost = (costOverrides && costOverrides[recipe.id] != null) ? costOverrides[recipe.id] : recipe.est_cost;
-  const cost = rawCost * householdSize(profile) / Math.max(1, recipe.servings);
+  // Cost scales by the number of people who actually eat THIS meal type, not
+  // the total household. A household of 4 where only the WFH parent eats
+  // planned lunches buys 1-serving lunches, not 4. dinersFor returns at
+  // least 1 (clamped) so a meal with zero diners — which buildSlots already
+  // skipped — wouldn't divide-by-zero if it ever leaked into scoring.
+  const diners = Math.max(1, dinersFor(profile, mealType));
+  const cost = rawCost * diners / Math.max(1, recipe.servings);
 
   // Budget score: 1 if cost <= perSlot, scales down sharply above.
   const budgetScore = cost <= perSlotBudget ? 1 : Math.max(0, 1 - (cost - perSlotBudget) / Math.max(1, perSlotBudget));
@@ -153,10 +171,12 @@ function scoreRecipe(recipe, ctx) {
 function buildSlots(profile) {
   const slots = [];
   const types = profile.meal_types.filter(t => t !== 'side');
-  const { planLunch } = lunchScopeForSlot(profile);
   for (let day = 0; day < 7; day++) {
     for (const t of types) {
-      if (t === 'lunch' && planLunch.length === 0) continue;
+      // Skip the slot entirely when no member is set to 'plan' for this
+      // meal type — generalizes the old lunch-only "if everyone has school
+      // lunch, skip lunch slots" rule to every meal type.
+      if (dinersFor(profile, t) === 0) continue;
       slots.push({ day, meal_type: t });
     }
   }
@@ -412,7 +432,6 @@ module.exports = {
   updateSlot,
   regenerateSlot,
   approvePlan,
-  lunchScopeForSlot,
   hasKids,
-  householdSize
+  dinersFor
 };

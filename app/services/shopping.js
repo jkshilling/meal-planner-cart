@@ -1,5 +1,5 @@
 const db = require('../db');
-const { loadPlan, householdSize } = require('./planner');
+const { loadPlan, dinersFor } = require('./planner');
 
 // Group items by (name, unit) and sum quantity. Two recipes both calling for
 // "cheese" + "oz" merge into one shopping row.
@@ -11,7 +11,6 @@ function buildShoppingList(planId) {
   const plan = loadPlan(planId);
   if (!plan) throw new Error('Plan not found');
   const profile = plan.profile;
-  const size = householdSize(profile);
 
   // Clear previous list.
   db.prepare('DELETE FROM shopping_items WHERE plan_id = ?').run(planId);
@@ -26,13 +25,11 @@ function buildShoppingList(planId) {
   if (recipeIds.length === 0) return { plan, items: [], warnings: ['No recipes in plan'] };
 
   const qMarks = recipeIds.map(() => '?').join(',');
-  const ings = db.prepare(`SELECT * FROM recipe_ingredients WHERE recipe_id IN (${qMarks})`).all(...recipeIds);
-
-  // Count how many times each recipe appears across the week (mains + sides).
-  const counts = {};
-  for (const it of plan.items) {
-    if (it.recipe_id) counts[it.recipe_id] = (counts[it.recipe_id] || 0) + 1;
-    if (it.side_recipe_id) counts[it.side_recipe_id] = (counts[it.side_recipe_id] || 0) + 1;
+  const ingRows = db.prepare(`SELECT * FROM recipe_ingredients WHERE recipe_id IN (${qMarks})`).all(...recipeIds);
+  const ingsByRecipe = {};
+  for (const ing of ingRows) {
+    if (!ingsByRecipe[ing.recipe_id]) ingsByRecipe[ing.recipe_id] = [];
+    ingsByRecipe[ing.recipe_id].push(ing);
   }
 
   const recipeRows = db.prepare(`SELECT id, servings FROM recipes WHERE id IN (${qMarks})`).all(...recipeIds);
@@ -42,23 +39,33 @@ function buildShoppingList(planId) {
   const merged = {};
   const warnings = [];
 
-  for (const ing of ings) {
-    if (!Number.isFinite(ing.quantity) || ing.quantity <= 0) {
-      warnings.push(`Invalid quantity on ingredient "${ing.name}" — skipped.`);
-      continue;
+  // Walk every plan item (each meal slot for each day) so we can scale by
+  // the number of diners for THAT meal type. A side paired with a dinner
+  // slot scales by dinner-diners; the same side paired with a lunch slot
+  // would scale by lunch-diners. The old code multiplied by householdSize
+  // uniformly, which over-portioned every meal in households with mixed
+  // per-member meal behaviors.
+  for (const item of plan.items) {
+    const diners = dinersFor(profile, item.meal_type);
+    if (diners === 0) continue;  // nobody eats this slot — don't shop for it
+
+    const recipesInSlot = [item.recipe_id, item.side_recipe_id].filter(Boolean);
+    for (const rid of recipesInSlot) {
+      const recipeServings = servingsById[rid] || 1;
+      const scale = diners / recipeServings;
+      const ings = ingsByRecipe[rid] || [];
+      for (const ing of ings) {
+        if (!Number.isFinite(ing.quantity) || ing.quantity <= 0) {
+          warnings.push(`Invalid quantity on ingredient "${ing.name}" — skipped.`);
+          continue;
+        }
+        const k = key(ing);
+        if (!merged[k]) {
+          merged[k] = { name: ing.name, quantity: 0, unit: ing.unit };
+        }
+        merged[k].quantity += ing.quantity * scale;
+      }
     }
-    const recipeServings = servingsById[ing.recipe_id] || 1;
-    const scale = size / recipeServings;
-    const totalForWeek = ing.quantity * scale * (counts[ing.recipe_id] || 0);
-    const k = key(ing);
-    if (!merged[k]) {
-      merged[k] = {
-        name: ing.name,
-        quantity: 0,
-        unit: ing.unit
-      };
-    }
-    merged[k].quantity += totalForWeek;
   }
 
   const rows = Object.values(merged).map(r => ({ ...r, quantity: +r.quantity.toFixed(2) }));

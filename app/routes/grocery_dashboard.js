@@ -22,7 +22,7 @@ function extensionCors(req, res, next) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Max-Age', '600');
   }
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -114,6 +114,110 @@ router.post('/grocery/products/:id/favorite', requireAuth, (req, res) => {
   // Bounce back to wherever they came from so the search/filter state is preserved.
   const back = req.get('referer') || '/grocery/products';
   res.redirect(back);
+});
+
+// Estimate the cart total before the user clicks "Add all to cart" in the
+// extension. For each shopping-list item, look up the most likely product
+// the run would land on and return its last-seen price.
+//
+// Cascade per item, in decreasing confidence:
+//   1. user_favorites — favorited product whose name LIKE the query → that.
+//   2. ingredient_products WHERE user_confirmed = 1 — user-validated mapping.
+//   3. ingredient_products (any) — algorithmic mapping picked at least once.
+//   4. recent grocery_searches → that search's picked_product_id.
+//   5. NULL — return source=null, exclude from sum.
+//
+// All lookups are scoped to req.tokenUser.id so two users querying the same
+// ingredient see their own histories.
+router.options('/api/grocery/price-estimate', extensionCors);
+router.post('/api/grocery/price-estimate', extensionCors, requireTokenAndResolveUser, express.json({ limit: '128kb' }), (req, res) => {
+  const uid = req.tokenUser.id;
+  const items = Array.isArray(req.body && req.body.items) ? req.body.items : null;
+  if (!items) return res.status(400).json({ ok: false, error: 'items array required' });
+  if (items.length > 200) return res.status(413).json({ ok: false, error: 'too many items (max 200)' });
+
+  const favoriteForQuery = db.prepare(`
+    SELECT p.id, p.name, p.product_url, p.latest_price
+      FROM user_favorites uf
+      JOIN walmart_products p ON p.id = uf.walmart_product_id
+     WHERE uf.user_id = ?
+       AND p.latest_price IS NOT NULL
+       AND LOWER(p.name) LIKE ?
+  ORDER BY p.last_seen_at DESC
+     LIMIT 1
+  `);
+  const confirmedMapping = db.prepare(`
+    SELECT p.id, p.name, p.product_url, p.latest_price
+      FROM ingredient_products ip
+      JOIN walmart_products p ON p.id = ip.product_id
+     WHERE ip.user_id = ?
+       AND ip.user_confirmed = 1
+       AND ip.ingredient_name = ?
+       AND p.latest_price IS NOT NULL
+  ORDER BY ip.uses_count DESC, ip.updated_at DESC
+     LIMIT 1
+  `);
+  const anyMapping = db.prepare(`
+    SELECT p.id, p.name, p.product_url, p.latest_price
+      FROM ingredient_products ip
+      JOIN walmart_products p ON p.id = ip.product_id
+     WHERE ip.user_id = ?
+       AND ip.ingredient_name = ?
+       AND p.latest_price IS NOT NULL
+  ORDER BY ip.uses_count DESC, ip.updated_at DESC
+     LIMIT 1
+  `);
+  const recentSearch = db.prepare(`
+    SELECT p.id, p.name, p.product_url, p.latest_price
+      FROM grocery_searches s
+      JOIN walmart_products p ON p.id = s.picked_product_id
+     WHERE s.user_id = ?
+       AND LOWER(s.query) = ?
+       AND p.latest_price IS NOT NULL
+  ORDER BY s.searched_at DESC
+     LIMIT 1
+  `);
+
+  const estimates = items.map((item) => {
+    const name = String((item && item.name) || '').trim();
+    if (!name) return { name: '', price: null, source: null };
+    const lower = name.toLowerCase();
+    const like = '%' + lower.replace(/%/g, '') + '%';
+
+    let row = favoriteForQuery.get(uid, like);
+    if (row) return { name, price: row.latest_price, source: 'favorite', productName: row.name, productUrl: row.product_url };
+
+    row = confirmedMapping.get(uid, lower);
+    if (row) return { name, price: row.latest_price, source: 'confirmed', productName: row.name, productUrl: row.product_url };
+
+    row = anyMapping.get(uid, lower);
+    if (row) return { name, price: row.latest_price, source: 'history', productName: row.name, productUrl: row.product_url };
+
+    row = recentSearch.get(uid, lower);
+    if (row) return { name, price: row.latest_price, source: 'recent', productName: row.name, productUrl: row.product_url };
+
+    return { name, price: null, source: null };
+  });
+
+  const priced = estimates.filter((e) => e.price != null);
+  const total = priced.reduce((s, e) => s + e.price, 0);
+
+  // Include the user's weekly grocery budget so the extension can flag a
+  // run that exceeds it, without needing a second round-trip.
+  const profile = db.prepare(
+    'SELECT budget_weekly FROM household_profiles WHERE user_id = ? AND active = 1 ORDER BY id LIMIT 1'
+  ).get(uid);
+
+  res.json({
+    ok: true,
+    estimates,
+    summary: {
+      total: Math.round(total * 100) / 100,
+      pricedCount: priced.length,
+      totalCount: estimates.length,
+      weeklyBudget: profile && profile.budget_weekly != null ? profile.budget_weekly : null
+    }
+  });
 });
 
 // JSON endpoint the food-buyer extension polls to learn which products the
