@@ -138,6 +138,8 @@ const SIZE_PATTERNS = [
   { rx: /(\d+\.?\d*)\s*liters?\b/i,            unit: 'L' },
   { rx: /(\d+\.?\d*)\s*kg\b/i,                 unit: 'kg' },
   { rx: /(\d+\.?\d*)\s*kilograms?\b/i,         unit: 'kg' },
+  { rx: /(\d+)\s*slices?\b/i,                  unit: 'slice' },  // sliced cheese, deli meat, bread
+  { rx: /(\d+)\s*pieces?\b/i,                  unit: 'piece' },
   { rx: /(\d+)\s*(?:ct|count|pack|pk)\b/i,     unit: 'ct' }    // count is the last fallback
 ];
 
