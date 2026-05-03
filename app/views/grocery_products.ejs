@@ -1,34 +1,21 @@
 <%- include('partials/header') %>
 <h1>Products <span class="count-badge"><%= rows.length %></span></h1>
 
-<form method="get" action="/grocery/products" class="card">
-  <label>Search by name
-    <input name="q" value="<%= q %>" placeholder="bread, milk, broccoli..." style="min-width: 260px" />
-  </label>
-  <% if (categories && categories.length) { %>
-    <label style="margin-left: 12px;">Category
-      <select name="category" onchange="this.form.submit()">
-        <option value="">all</option>
-        <% categories.forEach(function(c) { %>
-          <option value="<%= c.category %>" <%= category === c.category ? 'selected' : '' %>>
-            <%= c.category %> (<%= c.n %>)
-          </option>
-        <% }) %>
-      </select>
+<section class="card recipe-controls">
+  <div class="control-row">
+    <input id="catalog-search" type="text" autofocus
+           placeholder="Type to filter — bread, milk, broccoli..." style="flex:1 1 320px" />
+    <label class="inline">
+      <input id="catalog-favorites" type="checkbox" />
+      favorites only<% if (favoriteCount) { %> <span class="muted tiny">(<%= favoriteCount %>)</span><% } %>
     </label>
-  <% } %>
-  <label class="inline" style="margin-left: 12px;">
-    <input type="checkbox" name="favorites" value="1" <%= favoritesOnly ? 'checked' : '' %>
-           onchange="this.form.submit()" />
-    favorites only <% if (favoriteCount) { %><span class="muted tiny">(<%= favoriteCount %>)</span><% } %>
-  </label>
-  <button class="btn primary" type="submit">Search</button>
-  <% if (q || favoritesOnly || category) { %><a class="btn" href="/grocery/products">Clear</a><% } %>
-</form>
+    <span class="muted tiny" id="catalog-visible-count"></span>
+  </div>
+</section>
 
-<div class="card">
+<div class="card recipe-table-card">
   <% if (!rows.length) { %>
-    <p class="muted">No products match.</p>
+    <p class="muted" style="padding: 20px;">No products yet. Run a Walmart search through the food-buyer extension to start populating the catalog.</p>
   <% } else { %>
     <table class="grid-table">
       <thead>
@@ -43,13 +30,13 @@
           <th class="nowrap">Last seen</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="catalog-rows">
         <% rows.forEach(function(p) { %>
-          <tr>
+          <tr data-name="<%= (p.name || '').toLowerCase() %>"
+              data-favorite="<%= p.is_favorite ? '1' : '0' %>">
             <td class="fav-cell">
               <form method="post" action="/grocery/products/<%= p.id %>/favorite" style="display:inline">
-                <button class="fav-btn <%= p.is_favorite ? 'on' : '' %>"
-                        type="submit"
+                <button class="fav-btn <%= p.is_favorite ? 'on' : '' %>" type="submit"
                         title="<%= p.is_favorite ? 'unfavorite' : 'favorite — extension will prefer this product' %>">
                   <%= p.is_favorite ? '★' : '☆' %>
                 </button>
@@ -68,13 +55,47 @@
         <% }) %>
       </tbody>
     </table>
+    <p id="catalog-empty-hint" class="muted" style="display:none; padding:20px; text-align:center">No products match.</p>
   <% } %>
 </div>
 
 <% if (favoriteCount) { %>
   <p class="muted tiny">
-    Favorites are exposed at <code>/grocery/favorites.json</code> for the
-    food-buyer extension to bias its product picks.
+    Favorites are exposed at <code>/api/grocery/favorites</code> for the food-buyer extension.
   </p>
 <% } %>
+
+<script>
+(function() {
+  // Pure client-side filter over the rendered rows. With a 200-row server cap
+  // and tiny per-row payload, instant typeahead is fine without a round-trip.
+  var search = document.getElementById('catalog-search');
+  var favOnly = document.getElementById('catalog-favorites');
+  var rows = document.querySelectorAll('#catalog-rows tr');
+  var counter = document.getElementById('catalog-visible-count');
+  var empty = document.getElementById('catalog-empty-hint');
+  if (!search || !rows.length) return;
+
+  function apply() {
+    var q = (search.value || '').toLowerCase().trim();
+    var fOnly = favOnly && favOnly.checked;
+    var visible = 0;
+    rows.forEach(function(tr) {
+      var name = tr.dataset.name || '';
+      var fav = tr.dataset.favorite === '1';
+      var matchQ = !q || name.indexOf(q) >= 0;
+      var matchF = !fOnly || fav;
+      var show = matchQ && matchF;
+      tr.style.display = show ? '' : 'none';
+      if (show) visible++;
+    });
+    counter.textContent = visible + ' shown';
+    if (empty) empty.style.display = visible === 0 ? '' : 'none';
+  }
+
+  search.addEventListener('input', apply);
+  if (favOnly) favOnly.addEventListener('change', apply);
+  apply();
+})();
+</script>
 <%- include('partials/footer') %>
