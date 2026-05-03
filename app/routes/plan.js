@@ -19,6 +19,19 @@ function requireWalmart(req, res, next) {
   next();
 }
 
+// /shopping — convenience entry point used by the top nav. Resolves to the
+// most-recent plan's shopping list. If there's no plan yet, kick back to
+// /planner with a hint instead of 404'ing.
+router.get('/shopping', (req, res) => {
+  const profile = db.prepare('SELECT id FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1').get();
+  if (!profile) return res.redirect('/planner');
+  const latest = db.prepare(
+    'SELECT id FROM weekly_plans WHERE profile_id = ? ORDER BY id DESC LIMIT 1'
+  ).get(profile.id);
+  if (!latest) return res.redirect('/planner');
+  return res.redirect('/plan/' + latest.id + '/shopping');
+});
+
 router.post('/plan/:id/build-shopping', (req, res) => {
   const id = parseInt(req.params.id, 10);
   const plan = db.prepare('SELECT * FROM weekly_plans WHERE id = ?').get(id);
