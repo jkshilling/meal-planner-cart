@@ -32,7 +32,11 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 // Bearer-authed endpoints that the food-buyer Chrome extension uses. They
 // don't carry session cookies (different origin) so traditional CSRF doesn't
 // apply — the bearer token itself is the auth + intent proof.
-const BEARER_EXEMPT = new Set(['/api/grocery-events', '/api/grocery/favorites']);
+const BEARER_EXEMPT = new Set([
+  '/api/grocery-events',
+  '/api/grocery/favorites',
+  '/api/grocery/price-estimate'
+]);
 
 function verify(req, res, next) {
   if (SAFE_METHODS.has(req.method)) return next();
