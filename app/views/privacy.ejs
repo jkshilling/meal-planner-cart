@@ -1,0 +1,146 @@
+<%- include('partials/header') %>
+<h1>Privacy Policy</h1>
+
+<div class="card">
+  <p class="muted">Last updated: <strong><%= new Date().toISOString().slice(0, 10) %></strong></p>
+
+  <h2>What this covers</h2>
+  <p>
+    This policy applies to the <strong>Meal Planner</strong> web app at
+    <code>meals.alaskatargeting.com</code> and the
+    <strong>Food Buyer</strong> Chrome extension that integrates with it. They
+    are operated by Jordan Shilling as a personal-use tool with limited
+    distribution. There is no company behind them.
+  </p>
+
+  <h2>What data the apps work with</h2>
+  <ul>
+    <li>
+      <strong>Your meal plans, recipes, shopping lists, and household profile</strong>
+      that you create directly in the web app. Stored in a SQLite database
+      on the server hosting the app.
+    </li>
+    <li>
+      <strong>Public recipe data fetched from third-party APIs</strong>
+      (Spoonacular for recipes, USDA FoodData Central for nutrition).
+      Cached locally so the app does not re-fetch on every page view. No
+      personal data is sent to those APIs — only ingredient names and
+      recipe queries.
+    </li>
+    <li>
+      <strong>Walmart product data</strong> captured by the Food Buyer
+      Chrome extension as it searches retailers and adds items to your
+      cart. Specifically: product titles, prices, sizes, image URLs,
+      walmart.com product URLs, ratings, review counts. Posted to this
+      app and stored in your account, used to build a personal grocery
+      catalog with price history.
+    </li>
+  </ul>
+
+  <h2>What data the apps do NOT collect</h2>
+  <ul>
+    <li>Walmart account credentials. The extension uses your existing
+        logged-in Walmart session in your own browser; it never sees your
+        password.</li>
+    <li>Payment or financial information. The extension stops at "in cart"
+        and never automates checkout, never reads payment fields, never
+        transmits cards or banking data.</li>
+    <li>General web browsing history. The extension only activates on the
+        meal planner domain and on supported retailer sites
+        (currently <code>walmart.com</code>); it does not see other tabs.</li>
+    <li>Personally identifying information beyond what you enter into the
+        meal planner yourself (e.g. household-member names you type into
+        the Settings page).</li>
+    <li>Tracking cookies, advertising IDs, fingerprints, or analytics
+        beacons. The app sets one cookie to maintain your session;
+        nothing else.</li>
+  </ul>
+
+  <h2>Where your data goes</h2>
+  <ul>
+    <li>
+      <strong>Locally in the extension</strong>:
+      <code>chrome.storage.local</code> on your own device, holding your
+      shopping list snapshot, run results, and the API token you paste in
+      from the meal planner's Settings page. Cleared when you uninstall
+      the extension.
+    </li>
+    <li>
+      <strong>To the meal planner server</strong> over HTTPS, authenticated
+      with the API token you paste into the extension's Settings tab. The
+      server is a single DigitalOcean droplet running this app. Data is
+      stored only on that droplet's local disk; no third-party data
+      warehouse, no analytics provider.
+    </li>
+    <li>
+      <strong>Nowhere else.</strong> Your data is not sold, shared with
+      advertisers, used to train AI models, or transmitted to any third
+      party. The only outbound network calls the server makes are to
+      Spoonacular and USDA when you click <em>Search recipes</em> or
+      <em>Estimate nutrition</em> — and those calls contain only ingredient
+      names or recipe queries, no account data.
+    </li>
+  </ul>
+
+  <h2>Permissions the Chrome extension requests, and why</h2>
+  <ul>
+    <li><code>storage</code> — persists your shopping list, run state, and the
+        API token in your browser's local extension storage.</li>
+    <li><code>activeTab</code> — reads the meal planner's shopping list page
+        and drives the retailer tab when you click <em>Add all to cart</em>.</li>
+    <li><code>scripting</code> — re-injects the extension's helper scripts
+        into the retailer tab if Chrome orphans them after an extension
+        reload. Necessary because Chrome does not retroactively re-inject
+        from the manifest.</li>
+    <li>Host permissions for <code>meals.alaskatargeting.com</code>,
+        <code>walmart.com</code>, <code>target.com</code>, and
+        <code>kroger.com</code> — read the meal planner's shopping list and
+        operate on the supported retailer sites. (Target and Kroger
+        adapters are not yet implemented; the host permissions are pre-
+        declared so the architecture supports them.)</li>
+  </ul>
+
+  <h2>Your control</h2>
+  <ul>
+    <li>You can delete your captured grocery data at any time by SSH-ing
+        into the droplet (this app is operated by you / for you, depending
+        on whether you are reading this as the operator or as a
+        prospective user).</li>
+    <li>You can rotate the API token at any time from the
+        <a href="/settings#grocery-extension">Settings page</a>; rotating
+        invalidates the old token immediately.</li>
+    <li>You can clear the extension's local buffer of unsent events from
+        the extension's Settings tab.</li>
+    <li>You can uninstall the extension at any time from
+        <code>chrome://extensions</code>; uninstalling clears all extension-
+        local data.</li>
+  </ul>
+
+  <h2>Data retention</h2>
+  <p>
+    Captured grocery data persists indefinitely on the meal-planner server
+    until you delete it. There is no automatic expiry. Recipe and
+    nutrition caches are kept indefinitely as well; they contain no
+    personal data.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    This app is not directed at children under 13 and does not knowingly
+    collect data from them.
+  </p>
+
+  <h2>Changes to this policy</h2>
+  <p>
+    Material changes will be reflected by updating the date at the top of
+    this page. There is no separate notification mechanism; if you depend
+    on the policy text, check this page periodically.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions or requests can be sent to
+    <a href="mailto:jordan.shilling@gmail.com">jordan.shilling@gmail.com</a>.
+  </p>
+</div>
+<%- include('partials/footer') %>
