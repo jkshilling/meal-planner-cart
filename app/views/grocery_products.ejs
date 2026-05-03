@@ -21,6 +21,7 @@
           <th>Brand</th>
           <th>Size</th>
           <th>Latest price</th>
+          <th>Per unit</th>
           <th>Last seen</th>
         </tr>
       </thead>
@@ -34,6 +35,7 @@
             <td><%= p.brand || '' %></td>
             <td><%= p.size_text || '' %></td>
             <td><%= p.latest_price != null ? '$' + p.latest_price.toFixed(2) : '' %></td>
+            <td class="muted small"><%= p.unit_price || '' %></td>
             <td class="muted small"><%= p.last_seen_at %></td>
           </tr>
         <% }) %>

@@ -63,15 +63,16 @@ function cors(req, res, next) {
 const selectByUrl = db.prepare('SELECT id, latest_price FROM walmart_products WHERE product_url = ?');
 const insertProduct = db.prepare(`
   INSERT INTO walmart_products
-    (walmart_item_id, product_url, name, brand, size_text, latest_price, latest_price_at, image_url, last_seen_at)
+    (walmart_item_id, product_url, name, brand, size_text, unit_price, latest_price, latest_price_at, image_url, last_seen_at)
   VALUES
-    (@walmart_item_id, @product_url, @name, @brand, @size_text, @latest_price, @latest_price_at, @image_url, datetime('now'))
+    (@walmart_item_id, @product_url, @name, @brand, @size_text, @unit_price, @latest_price, @latest_price_at, @image_url, datetime('now'))
 `);
 const updateProduct = db.prepare(`
   UPDATE walmart_products
      SET name = @name,
          brand = COALESCE(@brand, brand),
          size_text = COALESCE(@size_text, size_text),
+         unit_price = COALESCE(@unit_price, unit_price),
          image_url = COALESCE(@image_url, image_url),
          walmart_item_id = COALESCE(@walmart_item_id, walmart_item_id),
          latest_price = COALESCE(@latest_price, latest_price),
@@ -107,6 +108,7 @@ function upsertProduct(r) {
     name: String(r.title || '').slice(0, 500) || '(unknown)',
     brand: r.brand ? String(r.brand).slice(0, 200) : null,
     size_text: r.sizeText ? String(r.sizeText).slice(0, 100) : null,
+    unit_price: r.unitPrice ? String(r.unitPrice).slice(0, 50) : null,
     latest_price: typeof r.price === 'number' && isFinite(r.price) ? r.price : null,
     latest_price_at: typeof r.price === 'number' && isFinite(r.price) ? new Date().toISOString() : null,
     image_url: r.imageUrl ? String(r.imageUrl).slice(0, 1000) : null

@@ -250,6 +250,9 @@ function ensureColumn(table, column, definition) {
 ensureColumn('weekly_plan_items', 'side_recipe_id', 'INTEGER REFERENCES recipes(id) ON DELETE SET NULL');
 ensureColumn('weekly_plan_items', 'side_score_json', 'TEXT');
 ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAULT '["dinner"]'`);
+// Per-unit price string from the search card ("$9.88/lb"). Stored verbatim;
+// catalog UI displays as-is. Nullable because not every product card has it.
+ensureColumn('walmart_products', 'unit_price', 'TEXT');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json

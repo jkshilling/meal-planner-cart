@@ -14,6 +14,7 @@
     <p>
       <% if (product.latest_price != null) { %>
         Latest price: <strong>$<%= product.latest_price.toFixed(2) %></strong>
+        <% if (product.unit_price) { %><span class="muted small">(<%= product.unit_price %>)</span><% } %>
         <span class="muted small">(observed <%= product.latest_price_at %>)</span>
       <% } else { %>
         <span class="muted">No price observed yet.</span>

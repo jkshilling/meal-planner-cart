@@ -45,7 +45,7 @@ router.get('/grocery/products', (req, res) => {
   if (q) {
     const like = '%' + q.replace(/%/g, '') + '%';
     rows = db.prepare(`
-      SELECT id, name, brand, size_text, latest_price, latest_price_at, last_seen_at, image_url
+      SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at, last_seen_at, image_url
         FROM walmart_products
        WHERE name LIKE ? OR brand LIKE ?
     ORDER BY last_seen_at DESC
@@ -53,7 +53,7 @@ router.get('/grocery/products', (req, res) => {
     `).all(like, like);
   } else {
     rows = db.prepare(`
-      SELECT id, name, brand, size_text, latest_price, latest_price_at, last_seen_at, image_url
+      SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at, last_seen_at, image_url
         FROM walmart_products
     ORDER BY last_seen_at DESC
        LIMIT 200
