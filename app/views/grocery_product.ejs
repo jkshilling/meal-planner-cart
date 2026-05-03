@@ -7,10 +7,14 @@
     <img src="<%= product.image_url %>" alt="" style="width:140px;height:140px;object-fit:contain;background:#fff;border-radius:8px"/>
   <% } %>
   <div>
+    <% if (product.size_text || product.category) { %>
     <p>
-      <% if (product.brand) { %><strong><%= product.brand %></strong> · <% } %>
+      <% if (product.category) { %><span class="muted"><%= product.category %></span><% } %>
+      <% if (product.category && product.size_text) { %> · <% } %>
       <% if (product.size_text) { %><%= product.size_text %><% } %>
     </p>
+    <% } %>
+
     <p>
       <% if (product.latest_price != null) { %>
         Latest price: <strong>$<%= product.latest_price.toFixed(2) %></strong>
