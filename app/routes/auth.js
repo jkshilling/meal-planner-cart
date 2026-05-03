@@ -28,7 +28,12 @@ const loginLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  // skipSuccessfulRequests defaults to "status code < 400". Our failed-login
+  // path returns 200 (re-renders the form with an inline error), which would
+  // be counted as success and never decrement the budget. Successful login
+  // returns 302 (redirect to ?next or /). Match on that explicitly.
   skipSuccessfulRequests: true,
+  requestWasSuccessful: (req, res) => res.statusCode === 302,
   handler: (req, res /*, next, options */) => {
     res.status(429).render('login', {
       title: 'Sign in',
