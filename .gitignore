@@ -7,6 +7,10 @@ data/app.db-journal
 data/app.db-shm
 data/app.db-wal
 
+# Spoonacular bulk-seed output. Gitignored during pipeline development;
+# remove this line and commit the JSON once we've curated a final library.
+data/spoonacular-seed.json
+
 # Environment
 .env
 
