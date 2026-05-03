@@ -33,13 +33,10 @@ function claimOrphanedHouseholds(userId, email) {
     db.prepare('UPDATE grocery_searches    SET user_id = ? WHERE user_id IS NULL').run(userId);
     db.prepare('UPDATE ingredient_products SET user_id = ? WHERE user_id IS NULL').run(userId);
 
-    // Migrate the old global walmart_products.is_favorite column into
-    // user_favorites for the claiming user. INSERT OR IGNORE handles the
-    // case of running this twice (shouldn't happen, but safe).
-    db.prepare(`
-      INSERT OR IGNORE INTO user_favorites (user_id, walmart_product_id)
-      SELECT ?, id FROM walmart_products WHERE is_favorite = 1
-    `).run(userId);
+    // (Earlier versions also migrated walmart_products.is_favorite=1 rows
+    // into user_favorites for the claiming user. The is_favorite column has
+    // since been dropped — once the bootstrap claim ran on prod, the data
+    // was already migrated. New databases never have the column.)
 
     // Migrate the old global grocery API token (app_settings.grocery_api_token)
     // into user_grocery_tokens for the claiming user, then retire the global

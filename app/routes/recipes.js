@@ -10,7 +10,6 @@ function parseIngredients(body) {
   const names = [].concat(body.ing_name || []);
   const qtys = [].concat(body.ing_qty || []);
   const units = [].concat(body.ing_unit || []);
-  const brands = [].concat(body.ing_brand || []);
   const out = [];
   for (let i = 0; i < names.length; i++) {
     const name = (names[i] || '').trim();
@@ -19,8 +18,7 @@ function parseIngredients(body) {
     out.push({
       name,
       quantity: isFinite(qty) && qty > 0 ? qty : 1,
-      unit: (units[i] || 'each').trim() || 'each',
-      brand_preference: (brands[i] || '').trim() || null
+      unit: (units[i] || 'each').trim() || 'each'
     });
   }
   return out;
@@ -110,9 +108,9 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(recipe.name, mealType, recipe.cuisine, 0, recipe.prep_time, recipe.servings, recipe.est_cost,
            calories, protein, fiber, sugar, sodium, 0, recipe.notes, userIdOf(req));
-    const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)');
+    const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
     for (const ing of recipe.ingredients) {
-      insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit, ing.brand_preference);
+      insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
     }
     return res.redirect('/recipes?edit=' + info.lastInsertRowid);
   } catch (e) {
@@ -146,8 +144,8 @@ router.post('/recipes', requireAuth, (req, res) => {
     );
   const rid = info.lastInsertRowid;
   const ings = parseIngredients(b);
-  const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)');
-  for (const i of ings) insertIng.run(rid, i.name, i.quantity, i.unit, i.brand_preference);
+  const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
+  for (const i of ings) insertIng.run(rid, i.name, i.quantity, i.unit);
   res.redirect('/recipes');
 });
 
@@ -181,8 +179,8 @@ router.post('/recipes/:id', requireAuth, (req, res) => {
     );
   db.prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
   const ings = parseIngredients(b);
-  const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit, brand_preference) VALUES (?, ?, ?, ?, ?)');
-  for (const i of ings) insertIng.run(id, i.name, i.quantity, i.unit, i.brand_preference);
+  const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
+  for (const i of ings) insertIng.run(id, i.name, i.quantity, i.unit);
   res.redirect('/recipes');
 });
 

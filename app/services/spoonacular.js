@@ -47,8 +47,7 @@ function extractIngredients(recipe) {
   return ext.map(i => ({
     name: (i.nameClean || i.name || '').toLowerCase().trim(),
     quantity: typeof i.amount === 'number' && i.amount > 0 ? +i.amount.toFixed(3) : 1,
-    unit: (i.unit || 'each').trim().toLowerCase() || 'each',
-    brand_preference: null
+    unit: (i.unit || 'each').trim().toLowerCase() || 'each'
   })).filter(i => i.name);
 }
 

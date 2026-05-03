@@ -1,10 +1,10 @@
 const db = require('../db');
 const { loadPlan, householdSize } = require('./planner');
 
-// Simple unit normalization: group items by (name, unit) and sum quantity.
-// Preserve specificity by keeping distinct brand preferences separate.
+// Group items by (name, unit) and sum quantity. Two recipes both calling for
+// "cheese" + "oz" merge into one shopping row.
 function key(item) {
-  return [item.name.trim().toLowerCase(), item.unit.trim().toLowerCase(), (item.brand_preference || '').trim().toLowerCase()].join('|');
+  return [item.name.trim().toLowerCase(), item.unit.trim().toLowerCase()].join('|');
 }
 
 function buildShoppingList(planId) {
@@ -55,17 +55,16 @@ function buildShoppingList(planId) {
       merged[k] = {
         name: ing.name,
         quantity: 0,
-        unit: ing.unit,
-        brand_preference: ing.brand_preference || null
+        unit: ing.unit
       };
     }
     merged[k].quantity += totalForWeek;
   }
 
   const rows = Object.values(merged).map(r => ({ ...r, quantity: +r.quantity.toFixed(2) }));
-  const insert = db.prepare(`INSERT INTO shopping_items (plan_id, name, quantity, unit, brand_preference, approved) VALUES (?, ?, ?, ?, ?, 1)`);
+  const insert = db.prepare(`INSERT INTO shopping_items (plan_id, name, quantity, unit, approved) VALUES (?, ?, ?, ?, 1)`);
   const tx = db.transaction(() => {
-    for (const r of rows) insert.run(planId, r.name, r.quantity, r.unit, r.brand_preference);
+    for (const r of rows) insert.run(planId, r.name, r.quantity, r.unit);
   });
   tx();
 
@@ -78,7 +77,7 @@ function loadShoppingItems(planId) {
 }
 
 function updateShoppingItem(id, fields) {
-  const allowed = ['name', 'quantity', 'unit', 'brand_preference', 'notes', 'approved'];
+  const allowed = ['name', 'quantity', 'unit', 'notes', 'approved'];
   const set = [], vals = [];
   for (const k of allowed) if (k in fields) { set.push(`${k} = ?`); vals.push(fields[k]); }
   if (!set.length) return;
@@ -91,9 +90,9 @@ function deleteShoppingItem(id) {
 }
 
 function addManualItem(planId, fields) {
-  const { name, quantity, unit, brand_preference } = fields;
-  db.prepare(`INSERT INTO shopping_items (plan_id, name, quantity, unit, brand_preference, manual, approved)
-              VALUES (?, ?, ?, ?, ?, 1, 1)`).run(planId, name, quantity || 1, unit || 'each', brand_preference || null);
+  const { name, quantity, unit } = fields;
+  db.prepare(`INSERT INTO shopping_items (plan_id, name, quantity, unit, manual, approved)
+              VALUES (?, ?, ?, ?, 1, 1)`).run(planId, name, quantity || 1, unit || 'each');
 }
 
 module.exports = {

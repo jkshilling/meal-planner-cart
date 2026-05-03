@@ -58,16 +58,11 @@ router.post('/plan/:id/shopping/item', requireAuth, (req, res) => {
     shopping.addManualItem(id, {
       name: (b.name || '').trim(),
       quantity: parseFloat(b.quantity) || 1,
-      unit: (b.unit || 'each').trim(),
-      brand_preference: null
+      unit: (b.unit || 'each').trim()
     });
   } else if (b.action === 'delete') {
     shopping.deleteShoppingItem(parseInt(b.item_id, 10));
   } else if (b.action === 'update') {
-    // brand_preference is no longer editable from the shopping list UI; it's
-    // still set by the recipe (services/shopping.buildShoppingList copies it
-    // from recipe_ingredients) and could be read by future matchers. Don't
-    // include it in the update fields so saves here can't null it out.
     shopping.updateShoppingItem(parseInt(b.item_id, 10), {
       name: b.name,
       quantity: parseFloat(b.quantity) || 1,

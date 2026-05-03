@@ -78,7 +78,6 @@ CREATE TABLE IF NOT EXISTS recipe_ingredients (
   name TEXT NOT NULL,
   quantity REAL NOT NULL DEFAULT 1,
   unit TEXT NOT NULL DEFAULT 'each',
-  brand_preference TEXT,
   FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
 );
 
@@ -119,7 +118,6 @@ CREATE TABLE IF NOT EXISTS shopping_items (
   name TEXT NOT NULL,
   quantity REAL NOT NULL DEFAULT 1,
   unit TEXT NOT NULL DEFAULT 'each',
-  brand_preference TEXT,
   notes TEXT,
   approved INTEGER NOT NULL DEFAULT 1,
   manual INTEGER NOT NULL DEFAULT 0,
@@ -148,12 +146,6 @@ CREATE TABLE IF NOT EXISTS walmart_products (
   fiber REAL,
   sugar REAL,
   sodium REAL,
-  -- DEPRECATED. Was the global "favorite" flag before favorites became
-  -- per-user (see user_favorites). Kept on the schema for legacy data
-  -- migrated by claimOrphanedHouseholds. Not written to anywhere; routes
-  -- read user_favorites instead. Will be dropped in a future migration
-  -- once all known installs have run the claim.
-  is_favorite INTEGER NOT NULL DEFAULT 0,
   -- Coarse grocery-aisle category derived from the product name at ingest
   -- time. Used to group/filter the catalog. NULL for legacy rows; populated
   -- by routes/grocery_events.js classify().
@@ -311,8 +303,6 @@ ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAUL
 // Per-unit price string from the search card ("$9.88/lb"). Stored verbatim;
 // catalog UI displays as-is. Nullable because not every product card has it.
 ensureColumn('walmart_products', 'unit_price', 'TEXT');
-// DEPRECATED: see CREATE TABLE comment. Kept for legacy migration only.
-ensureColumn('walmart_products', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
 // Coarse grocery category, derived from product name at ingest time.
 ensureColumn('walmart_products', 'category', 'TEXT');
 // User scoping for households. NULL means "orphaned, claimable on first
@@ -330,6 +320,14 @@ ensureColumn('ingredient_products', 'user_id', 'INTEGER REFERENCES users(id) ON 
 // The brand column was added speculatively for an extension feature that
 // never landed. Always null in practice. Dropped to clean up the schema.
 dropColumnIfExists('walmart_products', 'brand');
+// is_favorite was the pre-auth global favorite flag. Replaced by user_favorites
+// (commit 4) and then truly retired once the bootstrap claim ran on prod.
+dropColumnIfExists('walmart_products', 'is_favorite');
+// brand_preference on recipe ingredients + shopping items: never set on any
+// row of any deployed database. Speculative column from v1 design that no
+// matcher actually consumed.
+dropColumnIfExists('recipe_ingredients', 'brand_preference');
+dropColumnIfExists('shopping_items', 'brand_preference');
 
 // Tables retired with the Playwright cart-automation path (the food-buyer
 // Chrome extension replaced server-side Playwright). Drop on existing
