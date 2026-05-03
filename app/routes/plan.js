@@ -63,7 +63,7 @@ router.get('/plan/:id/shopping', requireAuth, (req, res) => {
   if (!plan) return;
   const items = shopping.loadShoppingItems(id);
   const matches = shopping.loadMatches(id);
-  res.render('shopping', { title: 'Shopping + Walmart', plan, items, matches });
+  res.render('shopping', { title: 'Shopping list', plan, items, matches });
 });
 
 router.post('/plan/:id/shopping/item', requireAuth, (req, res) => {
@@ -80,11 +80,14 @@ router.post('/plan/:id/shopping/item', requireAuth, (req, res) => {
   } else if (b.action === 'delete') {
     shopping.deleteShoppingItem(parseInt(b.item_id, 10));
   } else if (b.action === 'update') {
+    // brand_preference is no longer editable from the shopping list UI; it's
+    // still set by the recipe (services/shopping.buildShoppingList copies it
+    // from recipe_ingredients) and consumed by the matcher. Don't include it
+    // in the update fields so saves here can't null it out.
     shopping.updateShoppingItem(parseInt(b.item_id, 10), {
       name: b.name,
       quantity: parseFloat(b.quantity) || 1,
       unit: b.unit,
-      brand_preference: (b.brand || '').trim() || null,
       approved: b.approved ? 1 : 0
     });
   }

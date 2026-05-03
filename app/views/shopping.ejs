@@ -1,5 +1,5 @@
 <%- include('partials/header') %>
-<h1>Shopping + Walmart Match</h1>
+<h1>Shopping list</h1>
 <p><a href="/plan/<%= plan.id %>">← back to plan</a></p>
 
 <section class="card">
@@ -8,7 +8,7 @@
     <p class="muted">Empty. Build a list from the approved plan first.</p>
   <% } else { %>
     <table class="grid-table">
-      <thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th>Brand</th><th>Approved</th><th></th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th>Approved</th><th></th><th></th></tr></thead>
       <tbody>
         <% items.forEach(function(it) { %>
           <tr>
@@ -22,7 +22,6 @@
             </td>
             <td><input name="quantity" type="number" step="0.5" min="0" value="<%= it.quantity %>" form="upd-<%= it.id %>" /></td>
             <td><input name="unit" value="<%= it.unit %>" form="upd-<%= it.id %>" /></td>
-            <td><input name="brand" value="<%= it.brand_preference || '' %>" form="upd-<%= it.id %>" /></td>
             <td><input type="checkbox" name="approved" value="1" <%= it.approved ? 'checked' : '' %> form="upd-<%= it.id %>" /></td>
             <td><button class="link" type="submit" form="upd-<%= it.id %>">save</button></td>
             <td>
@@ -44,8 +43,7 @@
     <input type="hidden" name="action" value="add" />
     <input name="name" placeholder="add item…" required />
     <input name="quantity" type="number" step="0.5" min="0" value="1" />
-    <input name="unit" value="each" />
-    <input name="brand" placeholder="brand (optional)" />
+    <input name="unit" placeholder="unit (oz, lb, ct…)" />
     <button class="btn" type="submit">Add</button>
   </form>
 </section>
