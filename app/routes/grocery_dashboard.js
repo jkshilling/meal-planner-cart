@@ -58,6 +58,7 @@ router.get('/grocery', (req, res) => {
 router.get('/grocery/products', (req, res) => {
   const q = (req.query.q || '').toString().trim();
   const favoritesOnly = req.query.favorites === '1';
+  const category = (req.query.category || '').toString().trim();
   // Brand isn't currently populated by the food-buyer extension, so the
   // search only filters by name. Brand column stays in the table for if/when
   // we start extracting it.
@@ -69,19 +70,28 @@ router.get('/grocery/products', (req, res) => {
     params.push(like);
   }
   if (favoritesOnly) where.push('is_favorite = 1');
+  if (category) {
+    where.push('category = ?');
+    params.push(category);
+  }
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
-  // Sort favorites first so they're visually surfaced even when the user
-  // isn't filtering. Within each tier, freshest first.
+  // Sort favorites first, then group by category so similar items cluster
+  // visually (cheese with cheese, bread with bread). Within each (favorite,
+  // category) tier, freshest first.
   const rows = db.prepare(`
     SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at,
-           last_seen_at, image_url, is_favorite
+           last_seen_at, image_url, is_favorite, category
       FROM walmart_products
       ${whereSql}
-  ORDER BY is_favorite DESC, last_seen_at DESC
+  ORDER BY is_favorite DESC, COALESCE(category, 'zzz'), last_seen_at DESC
      LIMIT 200
   `).all(...params);
   const favoriteCount = db.prepare('SELECT COUNT(*) AS n FROM walmart_products WHERE is_favorite = 1').get().n;
-  res.render('grocery_products', { title: 'Products', rows, q, favoritesOnly, favoriteCount });
+  // Distinct categories present in the table, for the filter dropdown.
+  const categories = db.prepare(
+    'SELECT category, COUNT(*) AS n FROM walmart_products WHERE category IS NOT NULL GROUP BY category ORDER BY category'
+  ).all();
+  res.render('grocery_products', { title: 'Products', rows, q, favoritesOnly, favoriteCount, category, categories });
 });
 
 // Toggle a product's favorite flag. Used by the star button in the catalog

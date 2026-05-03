@@ -63,9 +63,9 @@ function cors(req, res, next) {
 const selectByUrl = db.prepare('SELECT id, latest_price FROM walmart_products WHERE product_url = ?');
 const insertProduct = db.prepare(`
   INSERT INTO walmart_products
-    (walmart_item_id, product_url, name, brand, size_text, unit_price, latest_price, latest_price_at, image_url, last_seen_at)
+    (walmart_item_id, product_url, name, brand, size_text, unit_price, latest_price, latest_price_at, image_url, category, last_seen_at)
   VALUES
-    (@walmart_item_id, @product_url, @name, @brand, @size_text, @unit_price, @latest_price, @latest_price_at, @image_url, datetime('now'))
+    (@walmart_item_id, @product_url, @name, @brand, @size_text, @unit_price, @latest_price, @latest_price_at, @image_url, @category, datetime('now'))
 `);
 const updateProduct = db.prepare(`
   UPDATE walmart_products
@@ -77,6 +77,7 @@ const updateProduct = db.prepare(`
          walmart_item_id = COALESCE(@walmart_item_id, walmart_item_id),
          latest_price = COALESCE(@latest_price, latest_price),
          latest_price_at = CASE WHEN @latest_price IS NOT NULL THEN @latest_price_at ELSE latest_price_at END,
+         category = COALESCE(@category, category),
          last_seen_at = datetime('now')
    WHERE id = @id
 `);
@@ -165,6 +166,36 @@ function computeUnitPrice(price, name) {
   return `$${formatted}/${size.unit}`;
 }
 
+// Coarse grocery-aisle classifier based on product name. Order matters:
+// the FIRST matching rule wins, so list more specific / disambiguating
+// categories first. This is intentionally simple and will misclassify
+// edge cases ("Cheese Pizza" → Frozen, not Cheese, because Frozen comes
+// first; "Banana Pudding" → Sweets, not Produce). Adjust by re-ordering
+// or extending the keyword lists in CATEGORY_RULES.
+const CATEGORY_RULES = [
+  ['Frozen',                /\b(frozen|ice cream|gelato|popsicle|freezer|pizza)\b/i],
+  ['Sweets & Desserts',     /\b(chocolate|candy|candies|cookie|cookies|brownie|donut|doughnut|cake|cupcake|pastry|pie|fudge|truffle|caramel|jelly bean|gummies?|marshmallow)\b/i],
+  ['Canned & Jarred',       /\b(canned|jarred|jar of|broth|stock|soup|chili\b|salsa|pickles|olives|peanut butter|jam|jelly(?!\s*bean)|preserves)\b/i],
+  ['Bread & Bakery',        /\b(bread|loaf|baguette|bun|buns|roll|rolls|tortilla|tortillas|bagel|bagels|biscuit|biscuits|pita|croissant|muffin|muffins|pancake|waffle|crumpet)\b/i],
+  ['Cheese',                /\b(cheese|cheddar|mozzarella|parmesan|brie|gouda|feta|ricotta|swiss|provolone|colby|monterey jack|gruy[èe]re|asiago|havarti|paneer|cotija|queso|american slices|cheese singles|kraft singles)\b/i],
+  ['Eggs',                  /\b(eggs?)\b(?!\s*(?:roll|nog|noodle))/i],
+  ['Dairy',                 /\b(milk|yogurt|yoghurt|butter|margarine|sour cream|heavy cream|half(?:\s|-)and(?:\s|-)half|whipped cream|kefir|buttermilk)\b/i],
+  ['Meat & Seafood',        /\b(chicken|beef|pork|turkey|ham\b|lamb|veal|bacon|sausage|salami|pepperoni|prosciutto|hot dog|ground meat|salmon|tuna|shrimp|cod|tilapia|halibut|crab|lobster|scallop|fish)\b/i],
+  ['Pasta & Grains',        /\b(pasta|spaghetti|penne|linguine|fettuccine|macaroni|lasagna|ziti|rigatoni|noodle|noodles|rice(?!\s*krisp)|quinoa|couscous|farro|barley|oats|oatmeal|cereal|granola|cornmeal|polenta)\b/i],
+  ['Beverages',             /\b(soda|cola|pepsi|sprite|coke|juice|lemonade|tea\b|coffee|espresso|water bottle|sparkling water|seltzer|kombucha|beer|wine|liquor|whiskey|vodka|rum|gin|tequila|smoothie drink)\b/i],
+  ['Snacks',                /\b(chips|cracker|crackers|pretzel|popcorn|trail mix|nuts(?:\s|$)|almonds|cashews|peanuts(?!\s*butter)|jerky|granola bar|protein bar|energy bar)\b/i],
+  ['Condiments, Oils & Spices', /\b(sauce|dressing|ketchup|mustard|mayo|mayonnaise|vinegar|olive oil|vegetable oil|canola oil|coconut oil|sesame oil|oil\b|salt|pepper|spice|seasoning|garlic powder|paprika|cumin|cinnamon|oregano|basil|thyme|rosemary|honey|maple syrup|hot sauce|soy sauce|sriracha|teriyaki)\b/i],
+  ['Produce',               /\b(apple|banana|orange|grape|strawberry|blueberry|raspberry|blackberry|melon|watermelon|pineapple|mango|peach|pear|plum|cherry|cherries|kiwi|avocado|lemon|lime|lettuce|spinach|kale|arugula|romaine|cabbage|broccoli|cauliflower|carrot|celery|onion|garlic|ginger|tomato|cucumber|pepper(?!\s*corn)|potato|sweet potato|squash|zucchini|mushroom|asparagus|bean sprouts|herbs?\b)\b/i]
+];
+
+function classify(name) {
+  if (!name) return null;
+  for (const [category, regex] of CATEGORY_RULES) {
+    if (regex.test(name)) return category;
+  }
+  return 'Other';
+}
+
 function upsertProduct(r) {
   const url = String(r.url || '').trim();
   if (!url) return null;
@@ -184,7 +215,8 @@ function upsertProduct(r) {
       : computeUnitPrice(latestPrice, name),
     latest_price: latestPrice,
     latest_price_at: latestPrice != null ? new Date().toISOString() : null,
-    image_url: r.imageUrl ? String(r.imageUrl).slice(0, 1000) : null
+    image_url: r.imageUrl ? String(r.imageUrl).slice(0, 1000) : null,
+    category: classify(name)
   };
   if (existing) {
     updateProduct.run({ id: existing.id, ...fields });

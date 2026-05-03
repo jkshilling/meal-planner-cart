@@ -5,13 +5,25 @@
   <label>Search by name
     <input name="q" value="<%= q %>" placeholder="bread, milk, broccoli..." style="min-width: 260px" />
   </label>
+  <% if (categories && categories.length) { %>
+    <label style="margin-left: 12px;">Category
+      <select name="category" onchange="this.form.submit()">
+        <option value="">all</option>
+        <% categories.forEach(function(c) { %>
+          <option value="<%= c.category %>" <%= category === c.category ? 'selected' : '' %>>
+            <%= c.category %> (<%= c.n %>)
+          </option>
+        <% }) %>
+      </select>
+    </label>
+  <% } %>
   <label class="inline" style="margin-left: 12px;">
     <input type="checkbox" name="favorites" value="1" <%= favoritesOnly ? 'checked' : '' %>
            onchange="this.form.submit()" />
     favorites only <% if (favoriteCount) { %><span class="muted tiny">(<%= favoriteCount %>)</span><% } %>
   </label>
   <button class="btn primary" type="submit">Search</button>
-  <% if (q || favoritesOnly) { %><a class="btn" href="/grocery/products">Clear</a><% } %>
+  <% if (q || favoritesOnly || category) { %><a class="btn" href="/grocery/products">Clear</a><% } %>
 </form>
 
 <div class="card">
@@ -24,6 +36,7 @@
           <th style="width:24px"></th>
           <th></th>
           <th>Name</th>
+          <th>Category</th>
           <th>Brand</th>
           <th>Size</th>
           <th>Latest price</th>
@@ -47,6 +60,7 @@
               <% if (p.image_url) { %><img src="<%= p.image_url %>" alt="" style="width:40px;height:40px;object-fit:contain"/><% } %>
             </td>
             <td><a href="/grocery/products/<%= p.id %>"><%= p.name %></a></td>
+            <td class="muted small"><%= p.category || '' %></td>
             <td><%= p.brand || '' %></td>
             <td><%= p.size_text || '' %></td>
             <td><%= p.latest_price != null ? '$' + p.latest_price.toFixed(2) : '' %></td>

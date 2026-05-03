@@ -158,6 +158,10 @@ CREATE TABLE IF NOT EXISTS walmart_products (
   -- User-marked favorite. Read by the food-buyer extension to bias its
   -- product picking when scanning Walmart search results.
   is_favorite INTEGER NOT NULL DEFAULT 0,
+  -- Coarse grocery-aisle category derived from the product name at ingest
+  -- time. Used to group/filter the catalog. NULL for legacy rows; populated
+  -- by routes/grocery_events.js classify().
+  category TEXT,
   first_seen_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_seen_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
@@ -258,6 +262,8 @@ ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAUL
 ensureColumn('walmart_products', 'unit_price', 'TEXT');
 // User-marked favorite — read by the food-buyer extension to bias picks.
 ensureColumn('walmart_products', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
+// Coarse grocery category, derived from product name at ingest time.
+ensureColumn('walmart_products', 'category', 'TEXT');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json
