@@ -5,10 +5,53 @@
 // middleware in server.js.
 
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const auth = require('../services/auth');
 const household = require('../services/household');
 
 const router = express.Router();
+
+// Brute-force protection on credential endpoints.
+//
+// /login: 10 attempts per IP per 15 min. Successful logins don't count, so a
+// fumbling user with a typo gets retries without burning the budget. bcrypt
+// already imposes ~100ms per verification — this caps a parallel attacker
+// who pipelines requests across many connections.
+//
+// /signup: tighter, since each successful POST creates a row in users.
+// 5 accounts per IP per hour. Same store, separate window/limit.
+//
+// trust proxy is set in server.js so req.ip is the real client IP behind
+// nginx (rather than 127.0.0.1, which would lump every user under one bucket).
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  handler: (req, res /*, next, options */) => {
+    res.status(429).render('login', {
+      title: 'Sign in',
+      email: (req.body && req.body.email) || '',
+      next: (req.body && req.body.next) || (req.query && req.query.next) || '',
+      flash: { type: 'warn', message: 'Too many login attempts. Wait a few minutes and try again.' }
+    });
+  }
+});
+
+const signupLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res /*, next, options */) => {
+    res.status(429).render('signup', {
+      title: 'Create account',
+      email: (req.body && req.body.email) || '',
+      flash: { type: 'warn', message: 'Too many signup attempts from this address. Try again in an hour.' }
+    });
+  }
+});
 
 // Two flavors:
 //   flashError + redirect: writes to session, surfaces on the next request.
@@ -38,7 +81,7 @@ router.get('/login', (req, res) => {
   res.render('login', { title: 'Sign in', email: '', next: req.query.next || '' });
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   const email = (req.body.email || '').toString();
   const password = (req.body.password || '').toString();
   const next_ = safeNext(req.body.next || req.query.next);
@@ -74,7 +117,7 @@ router.get('/signup', (req, res) => {
   res.render('signup', { title: 'Create account', email: '' });
 });
 
-router.post('/signup', async (req, res) => {
+router.post('/signup', signupLimiter, async (req, res) => {
   const email = (req.body.email || '').toString();
   const password = (req.body.password || '').toString();
   const confirm = (req.body.confirm || '').toString();
