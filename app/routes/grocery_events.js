@@ -98,6 +98,18 @@ const upsertIngredientProduct = db.prepare(`
     updated_at     = datetime('now')
 `);
 
+// The extension was sending review counts ("3256") in the sizeText field
+// because Walmart's product cards put the count where a structured size
+// would be. Real sizes contain a letter (oz, ct, lb, ml, etc.); pure
+// numerics are almost always junk extracted from the wrong DOM element.
+function cleanSize(s) {
+  if (!s) return null;
+  const trimmed = String(s).trim().slice(0, 100);
+  if (!trimmed) return null;
+  if (!/[a-zA-Z]/.test(trimmed)) return null;
+  return trimmed;
+}
+
 function upsertProduct(r) {
   const url = String(r.url || '').trim();
   if (!url) return null;
@@ -107,7 +119,7 @@ function upsertProduct(r) {
     product_url: url,
     name: String(r.title || '').slice(0, 500) || '(unknown)',
     brand: r.brand ? String(r.brand).slice(0, 200) : null,
-    size_text: r.sizeText ? String(r.sizeText).slice(0, 100) : null,
+    size_text: cleanSize(r.sizeText),
     unit_price: r.unitPrice ? String(r.unitPrice).slice(0, 50) : null,
     latest_price: typeof r.price === 'number' && isFinite(r.price) ? r.price : null,
     latest_price_at: typeof r.price === 'number' && isFinite(r.price) ? new Date().toISOString() : null,

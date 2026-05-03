@@ -15,7 +15,7 @@
       <% if (product.latest_price != null) { %>
         Latest price: <strong>$<%= product.latest_price.toFixed(2) %></strong>
         <% if (product.unit_price) { %><span class="muted small">(<%= product.unit_price %>)</span><% } %>
-        <span class="muted small">(observed <%= product.latest_price_at %>)</span>
+        <span class="muted small">(observed <%= formatDateTime(product.latest_price_at) %>)</span>
       <% } else { %>
         <span class="muted">No price observed yet.</span>
       <% } %>
@@ -23,7 +23,7 @@
     <p>
       <a class="btn" href="<%= product.product_url %>" target="_blank" rel="noopener">Open at Walmart</a>
     </p>
-    <p class="muted small">First seen <%= product.first_seen_at %> · last seen <%= product.last_seen_at %></p>
+    <p class="muted small">First seen <%= formatDate(product.first_seen_at) %> · last seen <%= formatDate(product.last_seen_at) %></p>
   </div>
 </div>
 
@@ -37,7 +37,7 @@
       <tbody>
         <% history.forEach(function(h) { %>
           <tr>
-            <td class="muted small"><%= h.seen_at %></td>
+            <td class="muted small"><%= formatDateTime(h.seen_at) %></td>
             <td>$<%= h.price.toFixed(2) %></td>
           </tr>
         <% }) %>
@@ -56,7 +56,7 @@
       <tbody>
         <% searches.forEach(function(s) { %>
           <tr>
-            <td class="muted small"><%= s.searched_at %></td>
+            <td class="muted small"><%= formatDateTime(s.searched_at) %></td>
             <td><%= s.query %></td>
             <td class="muted small"><%= s.pick_source %></td>
           </tr>

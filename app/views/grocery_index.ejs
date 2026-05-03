@@ -51,7 +51,7 @@
       <tbody>
         <% recent.forEach(function(r) { %>
           <tr>
-            <td class="muted small"><%= r.searched_at %></td>
+            <td class="muted small"><%= formatDateTime(r.searched_at) %></td>
             <td><%= r.retailer %></td>
             <td><%= r.query %></td>
             <td><%= r.result_count %></td>

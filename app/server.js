@@ -13,9 +13,12 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Expose feature flags to all views so templates can conditionally render.
+// Expose feature flags + display helpers to all views.
+const { formatDate, formatDateTime } = require('./services/format');
 app.use((req, res, next) => {
   res.locals.walmartEnabled = process.env.WALMART_ENABLED === 'true';
+  res.locals.formatDate = formatDate;
+  res.locals.formatDateTime = formatDateTime;
   next();
 });
 

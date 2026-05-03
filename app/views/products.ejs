@@ -27,7 +27,7 @@
             </td>
             <td><%= p.size_text || '—' %></td>
             <td><%= p.latest_price != null ? ('$' + p.latest_price.toFixed(2)) : '—' %></td>
-            <td class="muted tiny"><%= p.last_seen_at %></td>
+            <td class="muted tiny"><%= formatDate(p.last_seen_at) %></td>
             <td>
               <% if (!p.mapped_ingredients.length) { %>
                 <span class="muted tiny">no mappings</span>

@@ -1,6 +1,6 @@
 <%- include('partials/header') %>
 <h1>Automation Run #<%= run.id %></h1>
-<p>Status: <strong><%= run.status %></strong> · Started <%= run.started_at %><%= run.finished_at ? ' · Finished ' + run.finished_at : '' %></p>
+<p>Status: <strong><%= run.status %></strong> · Started <%= formatDateTime(run.started_at) %><%= run.finished_at ? ' · Finished ' + formatDateTime(run.finished_at) : '' %></p>
 <p><strong><%= run.success_count %></strong> added · <strong><%= run.failure_count %></strong> failed</p>
 <section class="card">
   <h2>Per-item log</h2>
