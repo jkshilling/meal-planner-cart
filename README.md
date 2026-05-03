@@ -201,6 +201,18 @@ tail -f /var/log/nginx/meal-planner-cart.access.log
 tail -f /var/log/nginx/meal-planner-cart.error.log
 ```
 
+## Nutrition lookup (USDA FoodData Central)
+
+Recipes imported via "Search online" are auto-filled with calories / protein / fiber / sugar / sodium pulled from USDA FoodData Central. Per-ingredient lookups are cached in `nutrition_lookups` so each ingredient is queried once.
+
+**API key**: `DEMO_KEY` (default in `.env.example`) is rate-limited to 30 req/hour per IP. For real use, sign up free at <https://api.data.gov/signup/> for 1,000 req/hour and put it in `.env` as `USDA_API_KEY=...`.
+
+**Honest accuracy notes**:
+- Per-100g USDA values are converted to recipe quantities via approximate volume→grams conversions. `1 cup flour ≈ 120g`, `1 cup leafy greens ≈ 30g`, etc. Generic fallback is `1 cup ≈ 240g` (water density). Real accuracy is roughly ±15–20%.
+- "Each"-style units (`1 banana`, `2 eggs`) use a small per-each weight lookup, falling back to 100g.
+- If USDA is rate-limited or doesn't have a good match for an ingredient, the import still succeeds — that ingredient's nutrition just doesn't contribute to the recipe total.
+- If at least one ingredient resolved, the recipe gets numbers; if none did, fields stay null.
+
 ## Current limitations (v1)
 
 - Rules-based planner only — no AI, embeddings, or external nutrition APIs.

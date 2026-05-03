@@ -184,6 +184,22 @@ CREATE TABLE IF NOT EXISTS ingredient_products (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ingredient_products_name ON ingredient_products(ingredient_name);
+
+-- Cache of USDA FoodData Central lookups so we don't re-hit the API every
+-- time we see "chicken breast" in an imported recipe. Per-100g values.
+CREATE TABLE IF NOT EXISTS nutrition_lookups (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ingredient_name TEXT NOT NULL UNIQUE,
+  matched_description TEXT,
+  data_type TEXT,
+  fdc_id INTEGER,
+  calories_per_100g REAL,
+  protein_per_100g REAL,
+  fiber_per_100g REAL,
+  sugar_per_100g REAL,
+  sodium_per_100g REAL,
+  fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 `;
 
 db.exec(SCHEMA);
