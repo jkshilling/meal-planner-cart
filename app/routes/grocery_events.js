@@ -20,6 +20,7 @@
 //             walmartItemId?: string,
 //             title: string,
 //             sizeText?: string,
+//             unitPrice?: string,         // e.g. "$9.88/lb" — server falls back to computed value
 //             price?: number,
 //             imageUrl?: string,
 //             rating?: number,

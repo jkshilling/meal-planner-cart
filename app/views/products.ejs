@@ -23,7 +23,6 @@
           <tr>
             <td>
               <% if (p.product_url) { %><a href="<%= p.product_url %>" target="_blank"><%= p.name %></a><% } else { %><%= p.name %><% } %>
-              <% if (p.brand) { %><div class="muted tiny"><%= p.brand %></div><% } %>
             </td>
             <td><%= p.size_text || '—' %></td>
             <td><%= p.latest_price != null ? ('$' + p.latest_price.toFixed(2)) : '—' %></td>
