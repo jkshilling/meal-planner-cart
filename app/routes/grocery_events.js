@@ -39,7 +39,7 @@
 
 const express = require('express');
 const db = require('../db');
-const { requireToken } = require('../services/grocery_token');
+const { requireTokenAndResolveUser } = require('../services/grocery_token');
 
 const router = express.Router();
 
@@ -85,13 +85,17 @@ const insertPriceHistory = db.prepare(`
 `);
 const insertSearch = db.prepare(`
   INSERT INTO grocery_searches
-    (retailer, query, shopping_item_id, picked_product_id, pick_source, result_count, client_session_id, searched_at)
+    (retailer, query, shopping_item_id, picked_product_id, pick_source, result_count, client_session_id, searched_at, user_id)
   VALUES
-    (@retailer, @query, @shopping_item_id, @picked_product_id, @pick_source, @result_count, @client_session_id, @searched_at)
+    (@retailer, @query, @shopping_item_id, @picked_product_id, @pick_source, @result_count, @client_session_id, @searched_at, @user_id)
 `);
+// ingredient_products is uniqued on (ingredient_name, product_id) for back-compat,
+// but we still record user_id on insert so per-user mapping reports stay clean.
+// On conflict we don't overwrite user_id (different users may both confirm the
+// same ingredient→product mapping; first-confirmer keeps the row).
 const upsertIngredientProduct = db.prepare(`
-  INSERT INTO ingredient_products (ingredient_name, product_id, user_confirmed, uses_count, updated_at)
-  VALUES (@ingredient_name, @product_id, @user_confirmed, 1, datetime('now'))
+  INSERT INTO ingredient_products (ingredient_name, product_id, user_confirmed, uses_count, updated_at, user_id)
+  VALUES (@ingredient_name, @product_id, @user_confirmed, 1, datetime('now'), @user_id)
   ON CONFLICT(ingredient_name, product_id) DO UPDATE SET
     user_confirmed = MAX(ingredient_products.user_confirmed, excluded.user_confirmed),
     uses_count     = ingredient_products.uses_count + 1,
@@ -235,7 +239,7 @@ function upsertProduct(r) {
   return info.lastInsertRowid;
 }
 
-function ingestEvent(ev, sessionId) {
+function ingestEvent(ev, sessionId, userId) {
   const results = Array.isArray(ev.results) ? ev.results : [];
   const productCount = { products: 0, priceRows: 0 };
   let pickedProductId = null;
@@ -264,7 +268,8 @@ function ingestEvent(ev, sessionId) {
     pick_source: ['auto', 'override', 'favorite', 'failed'].includes(ev.pickSource) ? ev.pickSource : 'auto',
     result_count: results.length,
     client_session_id: sessionId || null,
-    searched_at: ev.searchedAt || new Date().toISOString()
+    searched_at: ev.searchedAt || new Date().toISOString(),
+    user_id: userId
   });
 
   // Learn the ingredient -> product mapping. Both manual overrides and
@@ -274,7 +279,8 @@ function ingestEvent(ev, sessionId) {
     upsertIngredientProduct.run({
       ingredient_name: String(ev.query).toLowerCase().trim(),
       product_id: pickedProductId,
-      user_confirmed: (ev.pickSource === 'override' || ev.pickSource === 'favorite') ? 1 : 0
+      user_confirmed: (ev.pickSource === 'override' || ev.pickSource === 'favorite') ? 1 : 0,
+      user_id: userId
     });
   }
 
@@ -282,12 +288,13 @@ function ingestEvent(ev, sessionId) {
 }
 
 router.options('/api/grocery-events', cors);
-router.post('/api/grocery-events', cors, requireToken, express.json({ limit: '4mb' }), (req, res) => {
+router.post('/api/grocery-events', cors, requireTokenAndResolveUser, express.json({ limit: '4mb' }), (req, res) => {
   const body = req.body || {};
   const events = Array.isArray(body.events) ? body.events : null;
   if (!events) return res.status(400).json({ ok: false, error: 'events array required' });
   if (events.length > 200) return res.status(413).json({ ok: false, error: 'batch too large (max 200 events)' });
 
+  const userId = req.tokenUser.id;
   const totals = { searches: 0, products: 0, priceRows: 0 };
   const errors = [];
   // Wrap in a transaction so a malformed event in the middle doesn't leave
@@ -295,7 +302,7 @@ router.post('/api/grocery-events', cors, requireToken, express.json({ limit: '4m
   const tx = db.transaction((evs) => {
     for (let i = 0; i < evs.length; i++) {
       try {
-        const r = ingestEvent(evs[i], body.clientSessionId);
+        const r = ingestEvent(evs[i], body.clientSessionId, userId);
         totals.searches += r.searches;
         totals.products += r.products;
         totals.priceRows += r.priceRows;

@@ -221,12 +221,34 @@ CREATE TABLE IF NOT EXISTS nutrition_lookups (
   fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Tiny key/value bag for app-wide settings that aren't part of a user
--- profile (e.g. the grocery-events API token). Keep it small and explicit.
+-- Tiny key/value bag for app-wide settings. Used to be the home of the
+-- grocery-events API token before it was made per-user (see
+-- user_grocery_tokens below); keep around for any future global flags.
 CREATE TABLE IF NOT EXISTS app_settings (
   key TEXT PRIMARY KEY,
   value TEXT,
   updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Per-user favorite products. Replaces the old global walmart_products.is_favorite
+-- column (which is dropped by a migration below).
+CREATE TABLE IF NOT EXISTS user_favorites (
+  user_id INTEGER NOT NULL,
+  walmart_product_id INTEGER NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  PRIMARY KEY (user_id, walmart_product_id),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  FOREIGN KEY (walmart_product_id) REFERENCES walmart_products(id) ON DELETE CASCADE
+);
+
+-- Per-user grocery-events API tokens. Replaces the single global token
+-- previously stored in app_settings under key='grocery_api_token'.
+-- Each user has at most one active token; rotating regenerates it in place.
+CREATE TABLE IF NOT EXISTS user_grocery_tokens (
+  user_id INTEGER PRIMARY KEY,
+  token TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- One row per search event posted by the food-buyer Chrome extension.

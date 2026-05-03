@@ -1,63 +1,73 @@
-// Grocery-events API token. Single shared bearer token (per-device tokens
-// would be nicer for revocation, but this is one user's personal app — one
-// token is enough). Stored in app_settings.
+// Per-user grocery-events API tokens. Each user that wants to ship data from
+// the food-buyer Chrome extension gets their own bearer; rotating regenerates
+// it in place. Storage: user_grocery_tokens (one row per user). The
+// previously-global token in app_settings has been retired — the claim helper
+// (services/household.claimOrphanedHouseholds) migrates a pre-auth global
+// token to the first claiming user.
 //
 // Token shape: 32 hex chars (16 bytes), prefixed with "fbe_" so it's
-// recognizable in logs and at-a-glance distinguishable from an API key for
-// some other system.
+// recognizable in logs and at-a-glance distinguishable from API keys for
+// other systems.
 
 const crypto = require('crypto');
 const db = require('../db');
-
-const KEY = 'grocery_api_token';
 
 function generate() {
   return 'fbe_' + crypto.randomBytes(16).toString('hex');
 }
 
-function get() {
-  const row = db.prepare('SELECT value FROM app_settings WHERE key = ?').get(KEY);
-  return row ? row.value : null;
+function tokenForUser(userId) {
+  const row = db.prepare('SELECT token FROM user_grocery_tokens WHERE user_id = ?').get(userId);
+  return row ? row.token : null;
 }
 
-function ensure() {
-  let t = get();
+function ensureForUser(userId) {
+  let t = tokenForUser(userId);
   if (t) return t;
   t = generate();
-  db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)').run(KEY, t);
+  db.prepare('INSERT INTO user_grocery_tokens (user_id, token) VALUES (?, ?)').run(userId, t);
   return t;
 }
 
-function rotate() {
+function rotateForUser(userId) {
   const t = generate();
   db.prepare(`
-    INSERT INTO app_settings (key, value) VALUES (?, ?)
-    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')
-  `).run(KEY, t);
+    INSERT INTO user_grocery_tokens (user_id, token, created_at) VALUES (?, ?, datetime('now'))
+    ON CONFLICT(user_id) DO UPDATE SET token = excluded.token, created_at = datetime('now')
+  `).run(userId, t);
   return t;
 }
 
-// Express middleware: 401 if Authorization header doesn't carry the right
-// bearer. Use timingSafeEqual to keep the comparison constant-time.
-function requireToken(req, res, next) {
-  const expected = ensure();
+// Reverse lookup: given a presented token, return the owning user_id or null.
+// High-entropy random token means a simple existence check is fine — knowing
+// "this token exists" leaks at most one bit and the search space is 2^128.
+function userForToken(token) {
+  if (!token) return null;
+  const row = db.prepare('SELECT user_id FROM user_grocery_tokens WHERE token = ?').get(token);
+  return row ? row.user_id : null;
+}
+
+// Express middleware: validates the Authorization bearer and attaches
+// `req.tokenUser = { id }` so downstream handlers can scope inserts/queries
+// to the owning user. 401 on any mismatch.
+function requireTokenAndResolveUser(req, res, next) {
   const header = req.get('Authorization') || '';
   const m = header.match(/^Bearer\s+(.+)$/);
   if (!m) {
     return res.status(401).json({ ok: false, error: 'missing bearer token' });
   }
-  const presented = m[1].trim();
-  // Length-mismatched buffers throw with timingSafeEqual; pad both to a
-  // common length so wrong-length tokens don't leak length via error type.
-  const a = Buffer.from(presented);
-  const b = Buffer.from(expected);
-  if (a.length !== b.length) {
+  const uid = userForToken(m[1].trim());
+  if (!uid) {
     return res.status(401).json({ ok: false, error: 'invalid token' });
   }
-  if (!crypto.timingSafeEqual(a, b)) {
-    return res.status(401).json({ ok: false, error: 'invalid token' });
-  }
+  req.tokenUser = { id: uid };
   next();
 }
 
-module.exports = { ensure, get, rotate, requireToken };
+module.exports = {
+  tokenForUser,
+  ensureForUser,
+  rotateForUser,
+  userForToken,
+  requireTokenAndResolveUser
+};

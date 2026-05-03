@@ -82,16 +82,20 @@
     so rotate it if it ever leaks.
   </p>
   <% if (tokenRotated) { %><div class="flash success">Token rotated. Update the extension with the new value.</div><% } %>
-  <p>
-    <code style="user-select: all; padding: 4px 8px; background: #f4f4f4; border-radius: 4px; font-size: 13px;"><%= groceryToken %></code>
-  </p>
-  <form method="post" action="/settings/grocery-token/rotate" style="display:inline">
-    <button class="btn" type="submit"
-            onclick="return confirm('Rotating invalidates the current token everywhere it is in use. Continue?');">
-      Rotate token
-    </button>
-  </form>
-  <a class="btn" href="/grocery">View captured data</a>
+  <% if (groceryToken) { %>
+    <p>
+      <code style="user-select: all; padding: 4px 8px; background: #f4f4f4; border-radius: 4px; font-size: 13px;"><%= groceryToken %></code>
+    </p>
+    <form method="post" action="/settings/grocery-token/rotate" style="display:inline">
+      <button class="btn" type="submit"
+              onclick="return confirm('Rotating invalidates the current token everywhere it is in use. Continue?');">
+        Rotate token
+      </button>
+    </form>
+    <a class="btn" href="/grocery">View captured data</a>
+  <% } else { %>
+    <p class="muted"><a href="/login">Log in</a> to see your personal extension token.</p>
+  <% } %>
 </div>
 
 <script>

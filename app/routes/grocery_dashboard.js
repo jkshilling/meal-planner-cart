@@ -9,7 +9,7 @@
 
 const express = require('express');
 const db = require('../db');
-const { requireToken } = require('../services/grocery_token');
+const { requireTokenAndResolveUser } = require('../services/grocery_token');
 const { userIdOf } = require('../services/auth');
 
 const router = express.Router();
@@ -67,27 +67,66 @@ router.get('/grocery', (req, res) => {
 });
 
 router.get('/grocery/products', (req, res) => {
+  const uid = userIdOf(req);
   // Always send the latest 200; the page filters client-side via typeahead +
   // favorites checkbox. Sort favorites first, then group by category so
   // similar items cluster (cheese with cheese, bread with bread); within
   // each tier, freshest first.
-  const rows = db.prepare(`
-    SELECT id, name, size_text, unit_price, latest_price, latest_price_at,
-           last_seen_at, image_url, is_favorite, category
-      FROM walmart_products
-  ORDER BY is_favorite DESC, COALESCE(category, 'zzz'), last_seen_at DESC
-     LIMIT 200
-  `).all();
-  const favoriteCount = db.prepare('SELECT COUNT(*) AS n FROM walmart_products WHERE is_favorite = 1').get().n;
+  //
+  // Favorites live in user_favorites (per-user). When unauthed (legacy
+  // pre-auth path), fall back to the walmart_products.is_favorite column so
+  // the existing data still surfaces; commit 5 will drop this fallback once
+  // requireAuth gates this route.
+  const rows = uid
+    ? db.prepare(`
+        SELECT p.id, p.name, p.size_text, p.unit_price, p.latest_price, p.latest_price_at,
+               p.last_seen_at, p.image_url, p.category,
+               CASE WHEN uf.user_id IS NULL THEN 0 ELSE 1 END AS is_favorite
+          FROM walmart_products p
+     LEFT JOIN user_favorites uf
+            ON uf.walmart_product_id = p.id AND uf.user_id = ?
+      ORDER BY is_favorite DESC, COALESCE(p.category, 'zzz'), p.last_seen_at DESC
+         LIMIT 200
+      `).all(uid)
+    : db.prepare(`
+        SELECT id, name, size_text, unit_price, latest_price, latest_price_at,
+               last_seen_at, image_url, is_favorite, category
+          FROM walmart_products
+      ORDER BY is_favorite DESC, COALESCE(category, 'zzz'), last_seen_at DESC
+         LIMIT 200
+      `).all();
+  const favoriteCount = uid
+    ? db.prepare('SELECT COUNT(*) AS n FROM user_favorites WHERE user_id = ?').get(uid).n
+    : db.prepare('SELECT COUNT(*) AS n FROM walmart_products WHERE is_favorite = 1').get().n;
   res.render('grocery_products', { title: 'Products', rows, favoriteCount });
 });
 
-// Toggle a product's favorite flag. Used by the star button in the catalog
-// table. Idempotent: re-clicking flips back to non-favorite.
+// Toggle a product's favorite flag for the current user. Used by the star
+// button in the catalog table. Idempotent: re-clicking removes the row.
 router.post('/grocery/products/:id/favorite', (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!Number.isInteger(id)) return res.redirect('/grocery/products');
-  db.prepare('UPDATE walmart_products SET is_favorite = 1 - is_favorite WHERE id = ?').run(id);
+  const uid = userIdOf(req);
+  if (!uid) return res.redirect('/login');
+  // Insert if missing, delete if present. Single round-trip via a tiny
+  // transaction so concurrent double-clicks can't race into a duplicate row
+  // (the PRIMARY KEY would already block that, but being explicit avoids
+  // surfacing a UNIQUE constraint error to the user).
+  const toggle = db.transaction(() => {
+    const existing = db.prepare(
+      'SELECT 1 FROM user_favorites WHERE user_id = ? AND walmart_product_id = ?'
+    ).get(uid, id);
+    if (existing) {
+      db.prepare(
+        'DELETE FROM user_favorites WHERE user_id = ? AND walmart_product_id = ?'
+      ).run(uid, id);
+    } else {
+      db.prepare(
+        'INSERT INTO user_favorites (user_id, walmart_product_id) VALUES (?, ?)'
+      ).run(uid, id);
+    }
+  });
+  toggle();
   // Bounce back to wherever they came from so the search/filter state is preserved.
   const back = req.get('referer') || '/grocery/products';
   res.redirect(back);
@@ -95,17 +134,18 @@ router.post('/grocery/products/:id/favorite', (req, res) => {
 
 // JSON endpoint the food-buyer extension polls to learn which products the
 // user has favorited. Bearer-token authed (same token as /api/grocery-events)
-// so favorites can't be enumerated by anyone who finds the URL. Returns just
-// enough data for the extension to match against Walmart search results
-// (URL or item ID).
+// so one user's favorites can't be enumerated via another user's token.
+// Returns just enough data for the extension to match against Walmart search
+// results (URL or item ID).
 router.options('/api/grocery/favorites', extensionCors);
-router.get('/api/grocery/favorites', extensionCors, requireToken, (req, res) => {
+router.get('/api/grocery/favorites', extensionCors, requireTokenAndResolveUser, (req, res) => {
   const rows = db.prepare(`
-    SELECT walmart_item_id, product_url, name
-      FROM walmart_products
-     WHERE is_favorite = 1
-  ORDER BY last_seen_at DESC
-  `).all();
+    SELECT p.walmart_item_id, p.product_url, p.name
+      FROM user_favorites uf
+      JOIN walmart_products p ON p.id = uf.walmart_product_id
+     WHERE uf.user_id = ?
+  ORDER BY p.last_seen_at DESC
+  `).all(req.tokenUser.id);
   res.json({ favorites: rows });
 });
 

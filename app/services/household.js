@@ -33,6 +33,37 @@ function claimOrphanedHouseholds(userId, email) {
     db.prepare('UPDATE grocery_searches    SET user_id = ? WHERE user_id IS NULL').run(userId);
     db.prepare('UPDATE ingredient_products SET user_id = ? WHERE user_id IS NULL').run(userId);
     db.prepare('UPDATE automation_runs     SET user_id = ? WHERE user_id IS NULL').run(userId);
+
+    // Migrate the old global walmart_products.is_favorite column into
+    // user_favorites for the claiming user. INSERT OR IGNORE handles the
+    // case of running this twice (shouldn't happen, but safe).
+    db.prepare(`
+      INSERT OR IGNORE INTO user_favorites (user_id, walmart_product_id)
+      SELECT ?, id FROM walmart_products WHERE is_favorite = 1
+    `).run(userId);
+
+    // Migrate the old global grocery API token (app_settings.grocery_api_token)
+    // into user_grocery_tokens for the claiming user, then retire the global
+    // row so future signups can't inherit it. Only do this if the user
+    // doesn't already have their own token.
+    const globalToken = db.prepare(
+      "SELECT value FROM app_settings WHERE key = 'grocery_api_token'"
+    ).get();
+    if (globalToken && globalToken.value) {
+      const hasToken = db.prepare(
+        'SELECT 1 FROM user_grocery_tokens WHERE user_id = ?'
+      ).get(userId);
+      if (!hasToken) {
+        // Tokens are unique across users; if the global value happens to
+        // collide with something already issued (vanishingly unlikely with
+        // 16 random bytes), let the UNIQUE error propagate so we notice.
+        db.prepare(
+          'INSERT INTO user_grocery_tokens (user_id, token) VALUES (?, ?)'
+        ).run(userId, globalToken.value);
+      }
+      db.prepare("DELETE FROM app_settings WHERE key = 'grocery_api_token'").run();
+    }
+
     return profiles;
   });
   return claim();

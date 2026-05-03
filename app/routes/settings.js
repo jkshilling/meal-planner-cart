@@ -10,17 +10,22 @@ router.get('/settings', (req, res) => {
   const p = household.profileForRequest(req);
   if (!p) return res.redirect('/login');
   const profile = loadProfile(p.id);
+  // Token is per-user. Pre-auth fallback: no token shown until the user
+  // has logged in (the extension can't authenticate as nobody anyway).
+  const uid = req.session && req.session.user ? req.session.user.id : null;
   res.render('settings', {
     title: 'Settings',
     profile,
     saved: req.query.saved === '1',
-    groceryToken: groceryToken.ensure(),
+    groceryToken: uid ? groceryToken.ensureForUser(uid) : null,
     tokenRotated: req.query.tokenRotated === '1'
   });
 });
 
 router.post('/settings/grocery-token/rotate', (req, res) => {
-  groceryToken.rotate();
+  const uid = req.session && req.session.user ? req.session.user.id : null;
+  if (!uid) return res.redirect('/login');
+  groceryToken.rotateForUser(uid);
   res.redirect('/settings?tokenRotated=1#grocery-extension');
 });
 
