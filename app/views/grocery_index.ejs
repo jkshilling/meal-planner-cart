@@ -1,0 +1,73 @@
+<%- include('partials/header') %>
+<h1>Grocery data</h1>
+
+<div class="card">
+  <p class="muted">
+    Captured by the food-buyer Chrome extension as it searches retailers and
+    adds items to your cart. Empty? Either the extension hasn't synced yet or
+    the API token doesn't match — check
+    <a href="/settings#grocery-extension">Settings</a>.
+  </p>
+  <div class="row" style="display:flex; gap:24px; flex-wrap:wrap; margin-top:8px">
+    <div><strong><%= stats.searches.toLocaleString() %></strong><div class="muted small">searches recorded</div></div>
+    <div><strong><%= stats.products.toLocaleString() %></strong><div class="muted small">unique products</div></div>
+    <div><strong><%= stats.pricePoints.toLocaleString() %></strong><div class="muted small">price observations</div></div>
+    <div><strong><%= stats.confirmedMappings.toLocaleString() %></strong><div class="muted small">confirmed ingredient↔product mappings</div></div>
+  </div>
+  <p style="margin-top: 12px"><a class="btn" href="/grocery/products">Browse products</a></p>
+</div>
+
+<div class="card">
+  <h2>Top queries</h2>
+  <% if (!topQueries.length) { %>
+    <p class="muted">No queries yet.</p>
+  <% } else { %>
+    <table class="grid-table">
+      <thead><tr><th>Query</th><th>Times searched</th><th>User overrides</th></tr></thead>
+      <tbody>
+        <% topQueries.forEach(function(q) { %>
+          <tr>
+            <td><%= q.query %></td>
+            <td><%= q.n %></td>
+            <td><%= q.overrides %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<div class="card">
+  <h2>Recent searches</h2>
+  <% if (!recent.length) { %>
+    <p class="muted">No searches yet.</p>
+  <% } else { %>
+    <table class="grid-table">
+      <thead>
+        <tr>
+          <th>When</th><th>Retailer</th><th>Query</th><th>Results</th><th>Picked</th><th>Source</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% recent.forEach(function(r) { %>
+          <tr>
+            <td class="muted small"><%= r.searched_at %></td>
+            <td><%= r.retailer %></td>
+            <td><%= r.query %></td>
+            <td><%= r.result_count %></td>
+            <td>
+              <% if (r.picked_url) { %>
+                <a href="<%= r.picked_url %>" target="_blank" rel="noopener"><%= r.picked_name %></a>
+                <% if (r.picked_price != null) { %><span class="muted small"> — $<%= r.picked_price.toFixed(2) %></span><% } %>
+              <% } else { %>
+                <span class="muted">—</span>
+              <% } %>
+            </td>
+            <td><span class="muted small"><%= r.pick_source %></span></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+<%- include('partials/footer') %>

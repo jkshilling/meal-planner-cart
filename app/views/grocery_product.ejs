@@ -1,0 +1,67 @@
+<%- include('partials/header') %>
+<p><a href="/grocery/products">← all products</a></p>
+<h1><%= product.name %></h1>
+
+<div class="card" style="display:flex;gap:24px;align-items:flex-start;flex-wrap:wrap">
+  <% if (product.image_url) { %>
+    <img src="<%= product.image_url %>" alt="" style="width:140px;height:140px;object-fit:contain;background:#fff;border-radius:8px"/>
+  <% } %>
+  <div>
+    <p>
+      <% if (product.brand) { %><strong><%= product.brand %></strong> · <% } %>
+      <% if (product.size_text) { %><%= product.size_text %><% } %>
+    </p>
+    <p>
+      <% if (product.latest_price != null) { %>
+        Latest price: <strong>$<%= product.latest_price.toFixed(2) %></strong>
+        <span class="muted small">(observed <%= product.latest_price_at %>)</span>
+      <% } else { %>
+        <span class="muted">No price observed yet.</span>
+      <% } %>
+    </p>
+    <p>
+      <a class="btn" href="<%= product.product_url %>" target="_blank" rel="noopener">Open at Walmart</a>
+    </p>
+    <p class="muted small">First seen <%= product.first_seen_at %> · last seen <%= product.last_seen_at %></p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Price history</h2>
+  <% if (!history.length) { %>
+    <p class="muted">No observations yet.</p>
+  <% } else { %>
+    <table class="grid-table">
+      <thead><tr><th>When</th><th>Price</th></tr></thead>
+      <tbody>
+        <% history.forEach(function(h) { %>
+          <tr>
+            <td class="muted small"><%= h.seen_at %></td>
+            <td>$<%= h.price.toFixed(2) %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+
+<div class="card">
+  <h2>Searches that picked this product</h2>
+  <% if (!searches.length) { %>
+    <p class="muted">None recorded.</p>
+  <% } else { %>
+    <table class="grid-table">
+      <thead><tr><th>When</th><th>Query</th><th>Source</th></tr></thead>
+      <tbody>
+        <% searches.forEach(function(s) { %>
+          <tr>
+            <td class="muted small"><%= s.searched_at %></td>
+            <td><%= s.query %></td>
+            <td class="muted small"><%= s.pick_source %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+</div>
+<%- include('partials/footer') %>

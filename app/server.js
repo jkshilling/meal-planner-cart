@@ -25,6 +25,8 @@ app.use(require('./routes/recipes'));
 app.use(require('./routes/planner'));
 app.use(require('./routes/plan'));
 app.use(require('./routes/products'));
+app.use(require('./routes/grocery_events'));
+app.use(require('./routes/grocery_dashboard'));
 
 app.use((req, res) => res.status(404).render('error', { title: 'Not Found', message: 'Page not found.' }));
 app.use((err, req, res, next) => {

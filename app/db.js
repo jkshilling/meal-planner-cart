@@ -200,6 +200,40 @@ CREATE TABLE IF NOT EXISTS nutrition_lookups (
   sodium_per_100g REAL,
   fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+-- Tiny key/value bag for app-wide settings that aren't part of a user
+-- profile (e.g. the grocery-events API token). Keep it small and explicit.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key TEXT PRIMARY KEY,
+  value TEXT,
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- One row per search event posted by the food-buyer Chrome extension.
+-- Captures the query the user (or the meal planner) sent to a retailer
+-- plus enough metadata to re-rank later or audit search-quality drift.
+CREATE TABLE IF NOT EXISTS grocery_searches (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  retailer TEXT NOT NULL,
+  query TEXT NOT NULL,
+  -- The shopping_items.id (from the meal planner) this query was for, if
+  -- the extension knew it. Optional: extension sometimes searches for ad-hoc
+  -- ingredient names that never lived in our shopping_items table.
+  shopping_item_id INTEGER,
+  -- The product the user (or the auto-ranker) actually picked. References
+  -- walmart_products.id. NULL when the search returned no usable match.
+  picked_product_id INTEGER,
+  -- 'auto' = ranker chose, 'override' = user manually overrode in the popup,
+  -- 'failed' = nothing picked.
+  pick_source TEXT NOT NULL DEFAULT 'auto',
+  result_count INTEGER NOT NULL DEFAULT 0,
+  client_session_id TEXT,
+  searched_at TEXT NOT NULL DEFAULT (datetime('now')),
+  FOREIGN KEY (picked_product_id) REFERENCES walmart_products(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_grocery_searches_query ON grocery_searches(query);
+CREATE INDEX IF NOT EXISTS idx_grocery_searches_searched_at ON grocery_searches(searched_at);
 `;
 
 db.exec(SCHEMA);

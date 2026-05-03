@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { loadProfile } = require('../services/planner');
+const groceryToken = require('../services/grocery_token');
 
 const router = express.Router();
 
@@ -11,7 +12,18 @@ function activeProfile() {
 router.get('/settings', (req, res) => {
   const p = activeProfile();
   const profile = loadProfile(p.id);
-  res.render('settings', { title: 'Settings', profile, saved: req.query.saved === '1' });
+  res.render('settings', {
+    title: 'Settings',
+    profile,
+    saved: req.query.saved === '1',
+    groceryToken: groceryToken.ensure(),
+    tokenRotated: req.query.tokenRotated === '1'
+  });
+});
+
+router.post('/settings/grocery-token/rotate', (req, res) => {
+  groceryToken.rotate();
+  res.redirect('/settings?tokenRotated=1#grocery-extension');
 });
 
 router.post('/settings', (req, res) => {

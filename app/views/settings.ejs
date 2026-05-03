@@ -72,6 +72,28 @@
   <button class="btn primary" type="submit">Save settings</button>
 </form>
 
+<div class="card" id="grocery-extension">
+  <h2>Grocery extension API token</h2>
+  <p class="muted">
+    Used by the
+    <a href="https://github.com/jkshilling/food-buyer-extension" target="_blank" rel="noopener">food-buyer Chrome extension</a>
+    to ship search results and picks back to this app. Paste it into the
+    extension's Settings tab. Anyone with the token can write grocery events,
+    so rotate it if it ever leaks.
+  </p>
+  <% if (tokenRotated) { %><div class="flash success">Token rotated. Update the extension with the new value.</div><% } %>
+  <p>
+    <code style="user-select: all; padding: 4px 8px; background: #f4f4f4; border-radius: 4px; font-size: 13px;"><%= groceryToken %></code>
+  </p>
+  <form method="post" action="/settings/grocery-token/rotate" style="display:inline">
+    <button class="btn" type="submit"
+            onclick="return confirm('Rotating invalidates the current token everywhere it is in use. Continue?');">
+      Rotate token
+    </button>
+  </form>
+  <a class="btn" href="/grocery">View captured data</a>
+</div>
+
 <script>
 function addMember() {
   var tbody = document.getElementById('members');
