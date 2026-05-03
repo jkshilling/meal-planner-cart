@@ -79,7 +79,7 @@ router.get('/grocery/products', (req, res) => {
   // visually (cheese with cheese, bread with bread). Within each (favorite,
   // category) tier, freshest first.
   const rows = db.prepare(`
-    SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at,
+    SELECT id, name, size_text, unit_price, latest_price, latest_price_at,
            last_seen_at, image_url, is_favorite, category
       FROM walmart_products
       ${whereSql}

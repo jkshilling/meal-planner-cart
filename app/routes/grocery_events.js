@@ -19,7 +19,6 @@
 //             url: 'https://walmart.com/ip/...',
 //             walmartItemId?: string,
 //             title: string,
-//             brand?: string,
 //             sizeText?: string,
 //             price?: number,
 //             imageUrl?: string,
@@ -63,14 +62,13 @@ function cors(req, res, next) {
 const selectByUrl = db.prepare('SELECT id, latest_price FROM walmart_products WHERE product_url = ?');
 const insertProduct = db.prepare(`
   INSERT INTO walmart_products
-    (walmart_item_id, product_url, name, brand, size_text, unit_price, latest_price, latest_price_at, image_url, category, last_seen_at)
+    (walmart_item_id, product_url, name, size_text, unit_price, latest_price, latest_price_at, image_url, category, last_seen_at)
   VALUES
-    (@walmart_item_id, @product_url, @name, @brand, @size_text, @unit_price, @latest_price, @latest_price_at, @image_url, @category, datetime('now'))
+    (@walmart_item_id, @product_url, @name, @size_text, @unit_price, @latest_price, @latest_price_at, @image_url, @category, datetime('now'))
 `);
 const updateProduct = db.prepare(`
   UPDATE walmart_products
      SET name = @name,
-         brand = COALESCE(@brand, brand),
          size_text = COALESCE(@size_text, size_text),
          unit_price = COALESCE(@unit_price, unit_price),
          image_url = COALESCE(@image_url, image_url),
@@ -208,7 +206,6 @@ function upsertProduct(r) {
     walmart_item_id: r.walmartItemId || null,
     product_url: url,
     name,
-    brand: r.brand ? String(r.brand).slice(0, 200) : null,
     size_text: cleanSize(r.sizeText),
     // Walmart-provided unit price wins; fall back to one we compute from
     // (latest_price ÷ size-in-name) when the extension didn't deliver one.

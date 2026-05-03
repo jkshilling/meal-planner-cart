@@ -145,7 +145,6 @@ CREATE TABLE IF NOT EXISTS walmart_products (
   walmart_item_id TEXT UNIQUE,
   product_url TEXT NOT NULL UNIQUE,
   name TEXT NOT NULL,
-  brand TEXT,
   size_text TEXT,
   latest_price REAL,
   latest_price_at TEXT,
@@ -254,6 +253,19 @@ function ensureColumn(table, column, definition) {
     db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
   }
 }
+// Idempotent column drop. Requires SQLite >= 3.35 (Ubuntu 22.04 ships 3.37,
+// 24.04 ships 3.45). Wrapped in try/catch so older SQLite versions just
+// log and continue rather than crashing the app on startup.
+function dropColumnIfExists(table, column) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (cols.find(c => c.name === column)) {
+    try {
+      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    } catch (e) {
+      console.warn(`drop column ${table}.${column} failed (SQLite too old?): ${e.message}`);
+    }
+  }
+}
 ensureColumn('weekly_plan_items', 'side_recipe_id', 'INTEGER REFERENCES recipes(id) ON DELETE SET NULL');
 ensureColumn('weekly_plan_items', 'side_score_json', 'TEXT');
 ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAULT '["dinner"]'`);
@@ -264,6 +276,9 @@ ensureColumn('walmart_products', 'unit_price', 'TEXT');
 ensureColumn('walmart_products', 'is_favorite', 'INTEGER NOT NULL DEFAULT 0');
 // Coarse grocery category, derived from product name at ingest time.
 ensureColumn('walmart_products', 'category', 'TEXT');
+// The brand column was added speculatively for an extension feature that
+// never landed. Always null in practice. Dropped to clean up the schema.
+dropColumnIfExists('walmart_products', 'brand');
 
 // One-time migration: profiles created before sides-as-slots was removed
 // still have "side" inside meal_types_json. Strip it; pair_sides_with_json
