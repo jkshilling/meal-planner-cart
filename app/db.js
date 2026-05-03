@@ -64,6 +64,14 @@ CREATE TABLE IF NOT EXISTS household_members (
   allergies_json TEXT NOT NULL DEFAULT '[]',
   dietary_constraints_json TEXT NOT NULL DEFAULT '[]',
   disliked_ingredients_json TEXT NOT NULL DEFAULT '[]',
+  -- Packed-meal recipes. JSON map from meal_type → recipe_id (or null) for
+  -- meals where this member's meal_behavior is 'school' (i.e. they take a
+  -- packed meal — sandwich, leftovers, etc.). The planner does NOT generate
+  -- a sit-down slot for these meals, but the shopping list builder adds
+  -- 7 days × (1 / recipe.servings) of each ingredient so the packer has
+  -- groceries on hand. Recipe IDs that no longer exist are skipped silently.
+  -- Example: {"breakfast":null,"lunch":15,"snack":null,"dinner":null}
+  packed_recipe_ids_json TEXT NOT NULL DEFAULT '{}',
   FOREIGN KEY (profile_id) REFERENCES household_profiles(id) ON DELETE CASCADE
 );
 
@@ -393,6 +401,10 @@ dropColumnIfExists('household_members', 'lunch_behavior');
 ensureColumn('household_members', 'allergies_json',           `TEXT NOT NULL DEFAULT '[]'`);
 ensureColumn('household_members', 'dietary_constraints_json', `TEXT NOT NULL DEFAULT '[]'`);
 ensureColumn('household_members', 'disliked_ingredients_json',`TEXT NOT NULL DEFAULT '[]'`);
+// Per-member packed-meal recipe assignments. Defaults to {} so existing
+// members start with no packed meals (preserves current behavior — they'll
+// only get packed groceries on the shopping list once they pick a recipe).
+ensureColumn('household_members', 'packed_recipe_ids_json',   `TEXT NOT NULL DEFAULT '{}'`);
 {
   const profileCols = db.prepare('PRAGMA table_info(household_profiles)').all().map(c => c.name);
   // Only backfill while the legacy household-level columns still exist.

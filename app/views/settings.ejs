@@ -63,6 +63,7 @@
              var allergies = (m.allergies || []).join(', ');
              var dietary   = (m.dietary   || []).join(', ');
              var dislikes  = (m.dislikes  || []).join(', ');
+             var packed    = m.packed_recipe_ids || {};
         %>
           <tr class="member-row">
             <td><input name="member_name" value="<%= m.name %>" /></td>
@@ -94,8 +95,26 @@
                 </label>
               </div>
               <p class="muted tiny" style="margin: 4px 0 0;">Comma-separated. Each is a hard filter for any meal this person eats — recipes containing the listed items are skipped for slots where this person is set to <em>plan</em>.</p>
+
+              <h4 style="margin: 16px 0 6px; font-size: 14px;">Packed meals</h4>
+              <p class="muted tiny" style="margin: 0 0 6px;">
+                Used when this person's meal is set to <em>school</em> above — adds the recipe's ingredients (×7 days) to the shopping list <strong>without</strong> scheduling a sit-down meal. Leave blank if you handle packed meals outside the planner.
+              </p>
+              <div class="row" style="gap: 12px;">
+                <% ['breakfast','lunch','snack','dinner'].forEach(function(meal) { %>
+                  <label style="flex: 1 1 160px;">Packed <%= meal %>
+                    <select name="member_packed_<%= meal %>">
+                      <option value="">— none —</option>
+                      <% recipes.forEach(function(r) { %>
+                        <option value="<%= r.id %>" <%= String(packed[meal]) === String(r.id) ? 'selected' : '' %>><%= r.name %><% if (r.meal_type) { %> (<%= r.meal_type %>)<% } %></option>
+                      <% }) %>
+                    </select>
+                  </label>
+                <% }) %>
+              </div>
+
               <% if (rows.length > 1 && ix > 0) { %>
-                <p class="muted tiny" style="margin: 6px 0 0;">
+                <p class="muted tiny" style="margin: 10px 0 0;">
                   <button type="button" class="link" onclick="copyPrefsFromFirst(this)">Copy preferences from <%= rows[0].name || 'first member' %></button>
                 </p>
               <% } %>
@@ -226,6 +245,28 @@ function togglePrefs(btn) {
   btn.textContent = open ? 'Preferences ▸' : 'Preferences ▾';
 }
 
+// Stash a single template <select> for packed-meal recipes, populated
+// server-side from the user's recipe library. addMember() clones it for
+// each new member's prefs sub-row instead of duplicating recipe options
+// in this script. Hidden via a <template> tag so it doesn't get submitted.
+</script>
+<template id="packed-recipe-options">
+  <select>
+    <option value="">— none —</option>
+    <% recipes.forEach(function(r) { %>
+      <option value="<%= r.id %>"><%= r.name %><% if (r.meal_type) { %> (<%= r.meal_type %>)<% } %></option>
+    <% }) %>
+  </select>
+</template>
+<script>
+function packedDropdownHTML(meal) {
+  var tpl = document.getElementById('packed-recipe-options');
+  // Clone the template's <select>, set the right name, return its HTML.
+  var sel = tpl.content.querySelector('select').cloneNode(true);
+  sel.name = 'member_packed_' + meal;
+  return '<label style="flex: 1 1 160px;">Packed ' + meal + ' ' + sel.outerHTML + '</label>';
+}
+
 function addMember() {
   var tbody = document.getElementById('members');
   var tr = document.createElement('tr');
@@ -245,16 +286,22 @@ function addMember() {
         '<label style="flex: 1 1 200px;">Dietary constraints <input name="member_dietary" placeholder="vegetarian, gluten-free" /></label>' +
         '<label style="flex: 1 1 200px;">Disliked ingredients <input name="member_dislikes" placeholder="mushroom, cilantro" /></label>' +
       '</div>' +
-      '<p class="muted tiny" style="margin: 6px 0 0;">' +
+      '<h4 style="margin: 16px 0 6px; font-size: 14px;">Packed meals</h4>' +
+      '<p class="muted tiny" style="margin: 0 0 6px;">Used when this person\'s meal is set to <em>school</em> above — adds the recipe\'s ingredients (×7 days) to the shopping list without scheduling a sit-down meal.</p>' +
+      '<div class="row" style="gap: 12px;">' +
+        packedDropdownHTML('breakfast') + packedDropdownHTML('lunch') +
+        packedDropdownHTML('snack')     + packedDropdownHTML('dinner') +
+      '</div>' +
+      '<p class="muted tiny" style="margin: 10px 0 0;">' +
         '<button type="button" class="link" onclick="copyPrefsFromFirst(this)">Copy preferences from first member</button>' +
       '</p>' +
     '</td>';
   tbody.appendChild(prefs);
 }
 
-// Copy allergies/dietary/dislikes from the first member's row into the row
-// where the button was clicked. Cheap "everyone has the same constraints"
-// shortcut so users don't retype for shared-household setups.
+// Copy allergies/dietary/dislikes/packed-meals from the first member's row
+// into the row where the button was clicked. Cheap "everyone has the same
+// constraints" shortcut so users don't retype for shared-household setups.
 function copyPrefsFromFirst(btn) {
   var allPrefs = document.querySelectorAll('#members .member-prefs');
   if (allPrefs.length < 2) return;
@@ -264,6 +311,11 @@ function copyPrefsFromFirst(btn) {
   ['member_allergies', 'member_dietary', 'member_dislikes'].forEach(function(n) {
     var s = src.querySelector('input[name="' + n + '"]');
     var d = dst.querySelector('input[name="' + n + '"]');
+    if (s && d) d.value = s.value;
+  });
+  ['member_packed_breakfast','member_packed_lunch','member_packed_snack','member_packed_dinner'].forEach(function(n) {
+    var s = src.querySelector('select[name="' + n + '"]');
+    var d = dst.querySelector('select[name="' + n + '"]');
     if (s && d) d.value = s.value;
   });
 }

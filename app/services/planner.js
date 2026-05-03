@@ -23,6 +23,11 @@ function loadProfile(profileId) {
     m.allergies = parseJSON(m.allergies_json, []).map(s => String(s).toLowerCase());
     m.dietary   = parseJSON(m.dietary_constraints_json, []).map(s => String(s).toLowerCase());
     m.dislikes  = parseJSON(m.disliked_ingredients_json, []).map(s => String(s).toLowerCase());
+    // Packed-meal recipe assignments: meal_type → recipe_id (or null).
+    // Used by services/shopping.buildShoppingList to add ingredients for
+    // packed meals (lunches the member takes from home) without generating
+    // a slot in the plan.
+    m.packed_recipe_ids = parseJSON(m.packed_recipe_ids_json, {}) || {};
   }
   profile.meal_types = parseJSON(profile.meal_types_json, ['breakfast', 'lunch', 'snack', 'dinner'])
     .filter(t => t !== 'side');  // 'side' is no longer a slot type — paired with mains instead

@@ -18,9 +18,16 @@ router.get('/settings', requireAuth, (req, res) => {
     });
   }
   const profile = loadProfile(p.id);
+  // Pulled for the per-member "packed meal" recipe dropdowns. Just id +
+  // name + meal_type — the dropdown groups by meal_type so the user can
+  // pick the right kind of recipe (or any recipe if they want).
+  const recipes = db.prepare(
+    'SELECT id, name, meal_type FROM recipes WHERE user_id = ? ORDER BY meal_type, name'
+  ).all(uid);
   res.render('settings', {
     title: 'Settings',
     profile,
+    recipes,
     saved: req.query.saved === '1',
     groceryToken: groceryToken.ensureForUser(uid),
     tokenRotated: req.query.tokenRotated === '1',
@@ -105,11 +112,18 @@ router.post('/settings', requireAuth, (req, res) => {
   const allergies  = [].concat(body.member_allergies || []);
   const dietary    = [].concat(body.member_dietary   || []);
   const dislikes   = [].concat(body.member_dislikes  || []);
+  // Packed-meal recipe assignments (per-member, per-meal-type). Each is an
+  // array of recipe IDs (or empty strings, which we coerce to null).
+  const packedBreakfasts = [].concat(body.member_packed_breakfast || []);
+  const packedLunches    = [].concat(body.member_packed_lunch     || []);
+  const packedSnacks     = [].concat(body.member_packed_snack     || []);
+  const packedDinners    = [].concat(body.member_packed_dinner    || []);
   const insertMember = db.prepare(`
     INSERT INTO household_members
       (profile_id, name, label, meal_behavior_json,
-       allergies_json, dietary_constraints_json, disliked_ingredients_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+       allergies_json, dietary_constraints_json, disliked_ingredients_json,
+       packed_recipe_ids_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const sanitizeBehavior = (v) => (['plan', 'school', 'skip'].includes(v) ? v : 'plan');
   const mealBehaviorAt = (i) => JSON.stringify({
@@ -117,6 +131,18 @@ router.post('/settings', requireAuth, (req, res) => {
     lunch:     sanitizeBehavior(lunches[i]),
     snack:     sanitizeBehavior(snacks[i]),
     dinner:    sanitizeBehavior(dinners[i])
+  });
+  // Empty string from a "(none)" select option becomes null in the JSON;
+  // stringify-then-parse keeps numeric IDs as numbers.
+  const sanitizeRecipeId = (v) => {
+    const n = parseInt(v, 10);
+    return Number.isInteger(n) && n > 0 ? n : null;
+  };
+  const packedAt = (i) => JSON.stringify({
+    breakfast: sanitizeRecipeId(packedBreakfasts[i]),
+    lunch:     sanitizeRecipeId(packedLunches[i]),
+    snack:     sanitizeRecipeId(packedSnacks[i]),
+    dinner:    sanitizeRecipeId(packedDinners[i])
   });
   for (let i = 0; i < names.length; i++) {
     const name = (names[i] || '').trim();
@@ -128,14 +154,15 @@ router.post('/settings', requireAuth, (req, res) => {
       mealBehaviorAt(i),
       toJSONList(allergies[i] || ''),
       toJSONList(dietary[i]   || ''),
-      toJSONList(dislikes[i]  || '')
+      toJSONList(dislikes[i]  || ''),
+      packedAt(i)
     );
   }
   if (!names.filter(n => n && n.trim()).length) {
     insertMember.run(
       p.id, 'Me', 'adult',
       JSON.stringify({ breakfast: 'plan', lunch: 'plan', snack: 'plan', dinner: 'plan' }),
-      '[]', '[]', '[]'
+      '[]', '[]', '[]', '{}'
     );
   }
 
