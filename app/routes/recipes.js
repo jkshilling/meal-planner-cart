@@ -62,6 +62,21 @@ router.get('/recipes/search-online', async (req, res) => {
   }
 });
 
+// Compute estimated nutrition for a list of ingredients without persisting.
+// Used by the "Pre-fill from USDA" button on the recipe form so the user
+// can see what'll get saved before committing.
+router.post('/recipes/nutrition-preview', express.json(), async (req, res) => {
+  const ingredients = Array.isArray(req.body && req.body.ingredients) ? req.body.ingredients : [];
+  const servings = parseInt((req.body && req.body.servings) || 1, 10) || 1;
+  if (!ingredients.length) return res.json({ ok: false, reason: 'no ingredients' });
+  try {
+    const nutrition = await usda.recipeNutrition(ingredients, servings);
+    res.json({ ok: true, nutrition });
+  } catch (e) {
+    res.json({ ok: false, reason: e.message });
+  }
+});
+
 router.post('/recipes/import-online', async (req, res) => {
   const b = req.body;
   const sourceId = (b.source_id || '').toString();

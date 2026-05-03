@@ -453,6 +453,13 @@ tr.confidence-medium { background: #fdf9f0; }
 }
 .slot-side .slot-name { font-weight: 500; color: var(--ink-soft); }
 
+.planner-grid-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.planner-grid-header h2 { margin: 0; }
+
+/* Score-detail toggle: hide developer-y factor lines until the user opts in */
+.slot-meta.tiny { display: none; }
+body.show-scoring .slot-meta.tiny { display: block; }
+
 /* ============================================================
  * TheMealDB online results
  * ============================================================ */

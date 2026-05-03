@@ -15,7 +15,12 @@
 <% var byDay = {}; plan.items.forEach(function(it) { byDay[it.day] = byDay[it.day] || []; byDay[it.day].push(it); }); %>
 
 <section class="card">
-  <h2>Planner grid</h2>
+  <div class="planner-grid-header">
+    <h2>Planner grid</h2>
+    <label class="inline tiny muted" style="margin: 0;">
+      <input type="checkbox" id="show-scoring" /> show scoring details
+    </label>
+  </div>
   <table class="grid-table plan-grid">
     <thead>
       <tr>
@@ -95,6 +100,22 @@
     </tbody>
   </table>
 </section>
+
+<script>
+(function() {
+  // Score factor lines are hidden by default — useful for debugging the
+  // planner, distracting for everyone else. Toggle persists in localStorage.
+  var box = document.getElementById('show-scoring');
+  if (!box) return;
+  var key = 'mp_show_scoring';
+  box.checked = localStorage.getItem(key) === '1';
+  document.body.classList.toggle('show-scoring', box.checked);
+  box.addEventListener('change', function() {
+    document.body.classList.toggle('show-scoring', box.checked);
+    localStorage.setItem(key, box.checked ? '1' : '0');
+  });
+})();
+</script>
 
 <% if (plan.status !== 'approved') { %>
   <form method="post" action="/planner/approve" class="inline-form">

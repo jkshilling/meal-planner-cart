@@ -107,11 +107,33 @@ const PENALTIES = [
   /\binstant\b/i, /\bfreeze.dried\b/i,
   /\blunchmeat\b/i, /\bdeli\b/i,
   /\bbaby food\b/i, /\binfant\b/i, /\bnonfat dry\b/i,
-  /\bcanned\b/i  // canned versions often have added sodium/sugar
+  /\bcanned\b/i,  // canned versions often have added sodium/sugar
+  /\bcured\b/i, /\bsmoked\b/i, /\bmarinated\b/i  // more processed than the generic
 ];
 const BOOSTS = [
   /\braw\b/i, /\bfresh\b/i, /\bcooked\b/i  // "cooked" is fine, just not bad
 ];
+
+// Specific cut/variety words. If the user typed "beef" we don't want to
+// match "Beef, tenderloin" — that's a particular cut with a different
+// nutrition profile. Penalize cut/variety words ONLY if they're not in
+// the user's query.
+const CUT_WORDS = [
+  'tenderloin', 'ribeye', 'sirloin', 'flank', 'brisket', 'chuck', 'round',
+  'shank', 'shoulder', 'loin', 'rib', 'plate', 'belly', 'porterhouse',
+  'tomahawk', 'striploin', 'skirt', 'hanger', 'oxtail',
+  'thigh', 'wing', 'drumstick', 'tender'
+];
+
+// "Brand-y" descriptions tend to be ALL CAPS or contain a possessive like
+// "CARRABBA'S" — those are usually prepared meals, not generic ingredients.
+function looksBranded(desc) {
+  // 2+ consecutive ALL-CAPS words of length ≥ 3
+  if (/\b[A-Z]{3,}(?:\s+[A-Z]{3,})+\b/.test(desc)) return true;
+  // Apostrophe-S in caps (RED LOBSTER'S, McDONALD'S, CARRABBA'S)
+  if (/\b[A-Z]{2,}'S\b/.test(desc)) return true;
+  return false;
+}
 
 function nameRelevance(desc, query) {
   // Reward descriptions where the query words appear at the *start* of the
@@ -129,7 +151,8 @@ function nameRelevance(desc, query) {
 }
 
 function scoreFood(food, query) {
-  const desc = (food.description || '').toLowerCase();
+  const rawDesc = food.description || '';
+  const desc = rawDesc.toLowerCase();
   const n = food.foodNutrients || [];
   const hasNutrient = (name, unit) => n.some(x => (x.nutrientName === name) && (!unit || (x.unitName || '').toUpperCase() === unit));
   let score = 0;
@@ -144,6 +167,16 @@ function scoreFood(food, query) {
   // Penalties for processed forms.
   for (const re of PENALTIES) if (re.test(desc)) score -= 3;
   for (const re of BOOSTS) if (re.test(desc)) score += 0.5;
+  // Brand-style descriptions (CARRABBA'S, OLIVE GARDEN, etc.) are
+  // prepared meals — not what we want for an ingredient lookup.
+  if (looksBranded(rawDesc)) score -= 5;
+  // Cut/variety words ("tenderloin", "ribeye") penalized when not in query —
+  // user said "beef", we shouldn't return "Beef, tenderloin".
+  for (const cut of CUT_WORDS) {
+    if (desc.includes(cut) && !(query || '').toLowerCase().includes(cut)) {
+      score -= 1.5;
+    }
+  }
   // Shorter, simpler descriptions tend to be the canonical entry.
   score -= Math.min(2, desc.length / 80);
   return score;
