@@ -15,7 +15,12 @@ CREATE TABLE IF NOT EXISTS household_profiles (
   optimization_mode TEXT NOT NULL DEFAULT 'lowest_cost',
   breakfast_simplicity INTEGER NOT NULL DEFAULT 1,
   max_prep_time INTEGER NOT NULL DEFAULT 45,
-  meal_types_json TEXT NOT NULL DEFAULT '["breakfast","lunch","snack","dinner","side"]',
+  -- Slot types the planner generates per day. Sides are NOT a slot type —
+  -- they're paired into lunch/dinner slots via pair_sides_with_json below.
+  meal_types_json TEXT NOT NULL DEFAULT '["breakfast","lunch","snack","dinner"]',
+  -- Which meal slots get a paired side recipe attached. e.g. ["dinner"] or
+  -- ["lunch","dinner"]. Empty array disables side pairing entirely.
+  pair_sides_with_json TEXT NOT NULL DEFAULT '["dinner"]',
   dietary_constraints_json TEXT NOT NULL DEFAULT '[]',
   allergies_json TEXT NOT NULL DEFAULT '[]',
   disliked_ingredients_json TEXT NOT NULL DEFAULT '[]',
@@ -82,11 +87,16 @@ CREATE TABLE IF NOT EXISTS weekly_plan_items (
   day INTEGER NOT NULL,
   meal_type TEXT NOT NULL,
   recipe_id INTEGER,
+  -- Optional side dish paired with the main on this slot (lunch/dinner only).
+  -- Filled by the planner when profile.pair_sides_with_json includes meal_type.
+  side_recipe_id INTEGER,
+  side_score_json TEXT,
   note TEXT,
   locked INTEGER NOT NULL DEFAULT 0,
   score_json TEXT,
   FOREIGN KEY (plan_id) REFERENCES weekly_plans(id) ON DELETE CASCADE,
-  FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE SET NULL
+  FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE SET NULL,
+  FOREIGN KEY (side_recipe_id) REFERENCES recipes(id) ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS shopping_items (
@@ -177,6 +187,28 @@ CREATE INDEX IF NOT EXISTS idx_ingredient_products_name ON ingredient_products(i
 `;
 
 db.exec(SCHEMA);
+
+// ---- Migrations for existing databases ----------------------------------
+// CREATE TABLE IF NOT EXISTS doesn't add new columns to existing tables.
+// Add them idempotently via PRAGMA table_info introspection.
+function ensureColumn(table, column, definition) {
+  const cols = db.prepare(`PRAGMA table_info(${table})`).all();
+  if (!cols.find(c => c.name === column)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  }
+}
+ensureColumn('weekly_plan_items', 'side_recipe_id', 'INTEGER REFERENCES recipes(id) ON DELETE SET NULL');
+ensureColumn('weekly_plan_items', 'side_score_json', 'TEXT');
+ensureColumn('household_profiles', 'pair_sides_with_json', `TEXT NOT NULL DEFAULT '["dinner"]'`);
+
+// One-time migration: profiles created before sides-as-slots was removed
+// still have "side" inside meal_types_json. Strip it; pair_sides_with_json
+// already defaulted to ["dinner"], which preserves the user's intent.
+db.prepare(`
+  UPDATE household_profiles
+     SET meal_types_json = REPLACE(REPLACE(REPLACE(meal_types_json, '"side",', ''), ',"side"', ''), '"side"', '')
+   WHERE meal_types_json LIKE '%"side"%'
+`).run();
 
 function ensureProfile() {
   const row = db.prepare('SELECT * FROM household_profiles WHERE active = 1 ORDER BY id LIMIT 1').get();

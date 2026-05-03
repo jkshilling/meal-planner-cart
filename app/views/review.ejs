@@ -29,6 +29,7 @@
           <th><%= d %></th>
           <% plan.profile.meal_types.forEach(function(t) { %>
             <% var slot = (byDay[idx] || []).find(function(i) { return i.meal_type === t; }); %>
+            <% var pairSides = (plan.profile.pair_sides_with || []).indexOf(t) >= 0; %>
             <td>
               <% if (slot) { %>
                 <div class="slot">
@@ -44,6 +45,7 @@
                     <input type="hidden" name="plan_id" value="<%= plan.id %>" />
                     <input type="hidden" name="day" value="<%= idx %>" />
                     <input type="hidden" name="meal_type" value="<%= t %>" />
+                    <input type="hidden" name="target" value="main" />
                     <select name="recipe_id">
                       <option value="">— none —</option>
                       <% allRecipes.filter(function(r) { return r.meal_type === t; }).forEach(function(r) { %>
@@ -54,6 +56,33 @@
                     <button class="link" type="submit" name="action" value="regenerate">regen</button>
                     <button class="link" type="submit" name="action" value="lock"><%= slot.locked ? 'unlock' : 'lock' %></button>
                   </form>
+                  <% } %>
+
+                  <% if (pairSides) { %>
+                    <div class="slot-side">
+                      <div class="slot-side-label">+ side</div>
+                      <div class="slot-name"><%= slot.side_recipe_name || '— none —' %></div>
+                      <% if (slot.side_score) { %>
+                        <div class="slot-meta"><%= slot.side_prep_time %>m · $<%= slot.side_score.factors.cost_estimate %></div>
+                        <div class="slot-meta tiny">pair:<%= slot.side_score.factors.pairing %> (<%= slot.side_score.factors.main_carb %>↔<%= slot.side_score.factors.side_carb %>)</div>
+                      <% } %>
+                      <% if (plan.status !== 'approved') { %>
+                      <form method="post" action="/planner/update-slot" class="slot-form">
+                        <input type="hidden" name="plan_id" value="<%= plan.id %>" />
+                        <input type="hidden" name="day" value="<%= idx %>" />
+                        <input type="hidden" name="meal_type" value="<%= t %>" />
+                        <input type="hidden" name="target" value="side" />
+                        <select name="recipe_id">
+                          <option value="">— none —</option>
+                          <% allRecipes.filter(function(r) { return r.meal_type === 'side'; }).forEach(function(r) { %>
+                            <option value="<%= r.id %>" <%= slot.side_recipe_id === r.id ? 'selected' : '' %>><%= r.name %></option>
+                          <% }) %>
+                        </select>
+                        <button class="link" type="submit">swap</button>
+                        <button class="link" type="submit" name="action" value="regenerate">regen</button>
+                      </form>
+                      <% } %>
+                    </div>
                   <% } %>
                 </div>
               <% } else { %>

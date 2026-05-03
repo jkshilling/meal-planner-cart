@@ -10,9 +10,18 @@
 
     <fieldset>
       <legend>Meal types planned</legend>
-      <% ['breakfast','lunch','snack','dinner','side'].forEach(function(t) { %>
+      <% ['breakfast','lunch','snack','dinner'].forEach(function(t) { %>
         <label class="inline"><input type="checkbox" name="meal_<%= t %>" <%= profile.meal_types.includes(t) ? 'checked' : '' %>/> <%= t %></label>
       <% }) %>
+    </fieldset>
+
+    <fieldset>
+      <legend>Pair sides with</legend>
+      <% var pair = JSON.parse(profile.pair_sides_with_json || '[]'); %>
+      <% ['lunch','dinner'].forEach(function(t) { %>
+        <label class="inline"><input type="checkbox" name="pair_sides_<%= t %>" <%= pair.includes(t) ? 'checked' : '' %>/> <%= t %></label>
+      <% }) %>
+      <p class="muted tiny" style="margin: 4px 0 0">Each main gets a paired side recipe; the planner avoids carb-on-carb pairings (no rice with pasta, etc.).</p>
     </fieldset>
 
     <fieldset>

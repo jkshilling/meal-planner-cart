@@ -438,6 +438,21 @@ tr.confidence-medium { background: #fdf9f0; }
 .slot-form { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
 .slot-form select { font-size: 12px; padding: 4px 6px; }
 
+.slot-side {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+.slot-side-label {
+  font-size: 11px;
+  color: var(--ink-muted);
+  font-style: italic;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 2px;
+}
+.slot-side .slot-name { font-weight: 500; color: var(--ink-soft); }
+
 /* ============================================================
  * TheMealDB online results
  * ============================================================ */

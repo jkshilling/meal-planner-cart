@@ -31,15 +31,16 @@ router.post('/planner/update-slot', (req, res) => {
   const planId = parseInt(b.plan_id, 10);
   const day = parseInt(b.day, 10);
   const mealType = b.meal_type;
+  const target = b.target === 'side' ? 'side' : 'main';
   if (b.action === 'regenerate') {
-    planner.regenerateSlot(planId, day, mealType);
+    planner.regenerateSlot(planId, day, mealType, target);
   } else if (b.action === 'lock') {
     const cur = db.prepare('SELECT locked FROM weekly_plan_items WHERE plan_id = ? AND day = ? AND meal_type = ?').get(planId, day, mealType);
     db.prepare('UPDATE weekly_plan_items SET locked = ? WHERE plan_id = ? AND day = ? AND meal_type = ?')
       .run(cur && cur.locked ? 0 : 1, planId, day, mealType);
   } else {
     const recipeId = b.recipe_id ? parseInt(b.recipe_id, 10) : null;
-    planner.updateSlot(planId, day, mealType, recipeId, false);
+    planner.updateSlot(planId, day, mealType, recipeId, false, target);
   }
   res.redirect('/plan/' + planId);
 });

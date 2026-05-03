@@ -16,16 +16,23 @@ function buildShoppingList(planId) {
   // Clear previous list.
   db.prepare('DELETE FROM shopping_items WHERE plan_id = ?').run(planId);
 
-  const recipeIds = [...new Set(plan.items.filter(i => i.recipe_id).map(i => i.recipe_id))];
+  // Mains AND paired sides both contribute ingredients.
+  const allIds = new Set();
+  for (const i of plan.items) {
+    if (i.recipe_id) allIds.add(i.recipe_id);
+    if (i.side_recipe_id) allIds.add(i.side_recipe_id);
+  }
+  const recipeIds = [...allIds];
   if (recipeIds.length === 0) return { plan, items: [], warnings: ['No recipes in plan'] };
 
   const qMarks = recipeIds.map(() => '?').join(',');
   const ings = db.prepare(`SELECT * FROM recipe_ingredients WHERE recipe_id IN (${qMarks})`).all(...recipeIds);
 
-  // Count how many times each recipe appears across the week.
+  // Count how many times each recipe appears across the week (mains + sides).
   const counts = {};
   for (const it of plan.items) {
     if (it.recipe_id) counts[it.recipe_id] = (counts[it.recipe_id] || 0) + 1;
+    if (it.side_recipe_id) counts[it.side_recipe_id] = (counts[it.side_recipe_id] || 0) + 1;
   }
 
   const recipeRows = db.prepare(`SELECT id, servings FROM recipes WHERE id IN (${qMarks})`).all(...recipeIds);

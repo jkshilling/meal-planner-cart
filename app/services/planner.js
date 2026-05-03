@@ -11,13 +11,32 @@ function loadProfile(profileId) {
   const profile = db.prepare('SELECT * FROM household_profiles WHERE id = ?').get(profileId);
   if (!profile) return null;
   profile.members = db.prepare('SELECT * FROM household_members WHERE profile_id = ?').all(profileId);
-  profile.meal_types = parseJSON(profile.meal_types_json, ['breakfast', 'lunch', 'snack', 'dinner']);
+  profile.meal_types = parseJSON(profile.meal_types_json, ['breakfast', 'lunch', 'snack', 'dinner'])
+    .filter(t => t !== 'side');  // 'side' is no longer a slot type — paired with mains instead
+  profile.pair_sides_with = parseJSON(profile.pair_sides_with_json, ['dinner']);
   profile.dietary = parseJSON(profile.dietary_constraints_json, []).map(s => s.toLowerCase());
   profile.allergies = parseJSON(profile.allergies_json, []).map(s => s.toLowerCase());
   profile.dislikes = parseJSON(profile.disliked_ingredients_json, []).map(s => s.toLowerCase());
   profile.favorites = parseJSON(profile.favorite_meals_json, []).map(s => s.toLowerCase());
   profile.preferred_cuisines = parseJSON(profile.preferred_cuisines_json, []).map(s => s.toLowerCase());
   return profile;
+}
+
+// Tag a recipe by its primary carb based on ingredient name keywords. Used
+// to avoid carb-on-carb pairings like pasta+rice. 'none' means the recipe
+// has no dominant carb, so any side is fine.
+const CARB_KEYWORDS = {
+  pasta:  ['pasta', 'spaghetti', 'penne', 'fettuccine', 'lasagna', 'macaroni', 'noodle', 'lo mein', 'ramen', 'orzo', 'rotini', 'ziti', 'shells', 'linguine', 'rigatoni'],
+  rice:   ['rice', 'risotto', 'biryani', 'pilaf'],
+  bread:  ['bread', 'tortilla', 'bun', 'baguette', 'roll', 'bagel', 'pita', 'flatbread', 'cornbread', 'biscuit', 'focaccia', 'crackers'],
+  potato: ['potato', 'mashed', 'fries', 'wedges']
+};
+function carbTagFor(recipe) {
+  const text = ((recipe.name || '') + ' ' + (recipe.ingredients || []).map(i => i.name).join(' ')).toLowerCase();
+  for (const [tag, words] of Object.entries(CARB_KEYWORDS)) {
+    if (words.some(w => text.includes(w))) return tag;
+  }
+  return 'none';
 }
 
 function loadRecipes() {
@@ -125,7 +144,7 @@ function scoreRecipe(recipe, ctx) {
 
 function buildSlots(profile) {
   const slots = [];
-  const types = profile.meal_types;
+  const types = profile.meal_types.filter(t => t !== 'side');
   const { planLunch } = lunchScopeForSlot(profile);
   for (let day = 0; day < 7; day++) {
     for (const t of types) {
@@ -134,6 +153,44 @@ function buildSlots(profile) {
     }
   }
   return slots;
+}
+
+// Pick a side recipe to pair with a main. Same scoring spine as scoreRecipe
+// but with a side-specific pairing layer:
+//   - carb-on-carb penalty: -0.3 if main and side share carb tag
+//   - cuisine match: +0.1 boost
+//   - kid-friendly carry-over: +0.1 if main is kid_friendly and household has kids
+function pickSideFor(main, sidePool, ctx) {
+  if (!sidePool.length) return null;
+  const mainCarb = carbTagFor(main);
+  const mainCuisine = (main.cuisine || '').toLowerCase();
+  const profile = ctx.profile;
+
+  const scored = sidePool.map(side => {
+    const base = scoreRecipe(side, ctx);
+    const sideCarb = carbTagFor(side);
+
+    let pairing = 0;
+    if (mainCarb !== 'none' && sideCarb === mainCarb) pairing -= 0.3;
+    if (mainCuisine && side.cuisine && mainCuisine === side.cuisine.toLowerCase()) pairing += 0.1;
+    if (hasKids(profile) && main.kid_friendly && side.kid_friendly) pairing += 0.1;
+
+    return {
+      recipe: side,
+      result: {
+        total: base.total + pairing,
+        factors: {
+          ...base.factors,
+          pairing: +pairing.toFixed(2),
+          main_carb: mainCarb,
+          side_carb: sideCarb
+        }
+      }
+    };
+  });
+
+  scored.sort((a, b) => b.result.total - a.result.total);
+  return scored[0];
 }
 
 function generatePlan(profileId) {
@@ -158,13 +215,14 @@ function generatePlan(profileId) {
   const usedCounts = {};
   let remainingBudget = profile.budget_weekly;
   const items = [];
+  const sidePool = allRecipes.filter(r => r.meal_type === 'side');
 
   for (let i = 0; i < slots.length; i++) {
     const slot = slots[i];
     const pool = allRecipes.filter(r => r.meal_type === slot.meal_type);
     if (pool.length === 0) {
       warnings.push(`No recipes available for ${slot.meal_type} (${DAYS[slot.day]}).`);
-      items.push({ ...slot, recipe_id: null, score: null });
+      items.push({ ...slot, recipe_id: null, score: null, side_recipe_id: null, side_score: null });
       continue;
     }
     const ctx = {
@@ -181,10 +239,31 @@ function generatePlan(profileId) {
     usedCounts[pick.recipe.id] = (usedCounts[pick.recipe.id] || 0) + 1;
     const cost = pick.result.factors.cost_estimate;
     remainingBudget -= cost;
-    items.push({ ...slot, recipe_id: pick.recipe.id, score: pick.result });
+
+    // Pair a side if profile says this meal_type gets one.
+    let sidePick = null;
+    if (profile.pair_sides_with.includes(slot.meal_type) && sidePool.length) {
+      sidePick = pickSideFor(pick.recipe, sidePool, { ...ctx, mealType: 'side' });
+      if (sidePick) {
+        usedCounts[sidePick.recipe.id] = (usedCounts[sidePick.recipe.id] || 0) + 1;
+        remainingBudget -= sidePick.result.factors.cost_estimate;
+      }
+    }
+
+    items.push({
+      ...slot,
+      recipe_id: pick.recipe.id,
+      score: pick.result,
+      side_recipe_id: sidePick ? sidePick.recipe.id : null,
+      side_score: sidePick ? sidePick.result : null
+    });
   }
 
-  const totalCost = items.reduce((s, it) => s + (it.score ? it.score.factors.cost_estimate : 0), 0);
+  const totalCost = items.reduce((s, it) => {
+    let c = it.score ? it.score.factors.cost_estimate : 0;
+    if (it.side_score) c += it.side_score.factors.cost_estimate;
+    return s + c;
+  }, 0);
   if (totalCost > profile.budget_weekly) {
     warnings.push(`Estimated cost $${totalCost.toFixed(2)} exceeds weekly budget $${profile.budget_weekly.toFixed(2)}.`);
   }
@@ -198,10 +277,17 @@ function savePlan(profileId, generated) {
   const insertPlan = db.prepare('INSERT INTO weekly_plans (profile_id, start_date, status, total_cost) VALUES (?, ?, ?, ?)');
   const info = insertPlan.run(profileId, startDate, 'draft', generated.totalCost);
   const planId = info.lastInsertRowid;
-  const insertItem = db.prepare(`INSERT INTO weekly_plan_items (plan_id, day, meal_type, recipe_id, score_json) VALUES (?, ?, ?, ?, ?)`);
+  const insertItem = db.prepare(`INSERT INTO weekly_plan_items
+    (plan_id, day, meal_type, recipe_id, score_json, side_recipe_id, side_score_json)
+    VALUES (?, ?, ?, ?, ?, ?, ?)`);
   const tx = db.transaction(() => {
     for (const it of generated.items) {
-      insertItem.run(planId, it.day, it.meal_type, it.recipe_id, it.score ? JSON.stringify(it.score) : null);
+      insertItem.run(
+        planId, it.day, it.meal_type, it.recipe_id,
+        it.score ? JSON.stringify(it.score) : null,
+        it.side_recipe_id || null,
+        it.side_score ? JSON.stringify(it.side_score) : null
+      );
     }
   });
   tx();
@@ -212,19 +298,23 @@ function loadPlan(planId) {
   const plan = db.prepare('SELECT * FROM weekly_plans WHERE id = ?').get(planId);
   if (!plan) return null;
   const items = db.prepare(`
-    SELECT wpi.*, r.name as recipe_name, r.prep_time, r.est_cost, r.servings,
-           r.calories, r.protein, r.fiber, r.sugar, r.sodium, r.kid_friendly
+    SELECT wpi.*,
+           r.name as recipe_name, r.prep_time, r.est_cost, r.servings,
+           r.calories, r.protein, r.fiber, r.sugar, r.sodium, r.kid_friendly,
+           sr.name as side_recipe_name, sr.prep_time as side_prep_time, sr.est_cost as side_est_cost
     FROM weekly_plan_items wpi
-    LEFT JOIN recipes r ON wpi.recipe_id = r.id
+    LEFT JOIN recipes r  ON wpi.recipe_id = r.id
+    LEFT JOIN recipes sr ON wpi.side_recipe_id = sr.id
     WHERE wpi.plan_id = ?
     ORDER BY wpi.day, wpi.meal_type
   `).all(planId);
   for (const it of items) {
     it.score = it.score_json ? JSON.parse(it.score_json) : null;
+    it.side_score = it.side_score_json ? JSON.parse(it.side_score_json) : null;
   }
   plan.items = items;
   plan.profile = loadProfile(plan.profile_id);
-  const totalPrep = items.reduce((s, it) => s + (it.prep_time || 0), 0);
+  const totalPrep = items.reduce((s, it) => s + (it.prep_time || 0) + (it.side_prep_time || 0), 0);
   const healthItems = items.filter(it => it.recipe_id);
   const avgHealth = healthItems.length ? healthItems.reduce((s, it) => s + (it.score ? it.score.factors.health : 0), 0) / healthItems.length : 0;
   plan.total_prep = totalPrep;
@@ -232,33 +322,66 @@ function loadPlan(planId) {
   return plan;
 }
 
-function updateSlot(planId, day, mealType, recipeId, locked) {
-  db.prepare(`UPDATE weekly_plan_items SET recipe_id = ?, locked = ?, score_json = NULL
-              WHERE plan_id = ? AND day = ? AND meal_type = ?`)
-    .run(recipeId || null, locked ? 1 : 0, planId, day, mealType);
+// target = 'main' (default) or 'side' — controls which column is updated.
+function updateSlot(planId, day, mealType, recipeId, locked, target = 'main') {
+  if (target === 'side') {
+    db.prepare(`UPDATE weekly_plan_items SET side_recipe_id = ?, side_score_json = NULL
+                WHERE plan_id = ? AND day = ? AND meal_type = ?`)
+      .run(recipeId || null, planId, day, mealType);
+  } else {
+    db.prepare(`UPDATE weekly_plan_items SET recipe_id = ?, locked = ?, score_json = NULL
+                WHERE plan_id = ? AND day = ? AND meal_type = ?`)
+      .run(recipeId || null, locked ? 1 : 0, planId, day, mealType);
+  }
 }
 
-function regenerateSlot(planId, day, mealType) {
+function regenerateSlot(planId, day, mealType, target = 'main') {
   const plan = loadPlan(planId);
   if (!plan) return;
   const profile = plan.profile;
-  const allRecipes = loadRecipes().filter(r => recipePassesHardFilters(r, profile) && r.meal_type === mealType);
-  const currentId = (plan.items.find(it => it.day === day && it.meal_type === mealType) || {}).recipe_id;
-  const pool = allRecipes.filter(r => r.id !== currentId);
-  if (pool.length === 0) return;
+  const item = plan.items.find(it => it.day === day && it.meal_type === mealType);
+  if (!item) return;
+  const allRecipes = loadRecipes().filter(r => recipePassesHardFilters(r, profile));
   const usedCounts = {};
-  for (const it of plan.items) if (it.recipe_id) usedCounts[it.recipe_id] = (usedCounts[it.recipe_id] || 0) + 1;
-  const remaining = Math.max(1, profile.budget_weekly - plan.items.reduce((s, it) => s + (it.score ? it.score.factors.cost_estimate : 0), 0));
-  const costOverrides = {};
-  for (const r of pool) {
-    const est = productCache.estimateRecipeCost(r.id);
-    if (est.total > 0 && est.covered / est.total >= 0.5) costOverrides[r.id] = est.cost;
+  for (const it of plan.items) {
+    if (it.recipe_id) usedCounts[it.recipe_id] = (usedCounts[it.recipe_id] || 0) + 1;
+    if (it.side_recipe_id) usedCounts[it.side_recipe_id] = (usedCounts[it.side_recipe_id] || 0) + 1;
   }
-  const scored = pool.map(r => ({ recipe: r, result: scoreRecipe(r, { profile, usedCounts, remainingBudget: remaining, slotsLeft: 1, mealType, costOverrides }) }));
-  scored.sort((a, b) => b.result.total - a.result.total);
-  const pick = scored[0];
-  db.prepare(`UPDATE weekly_plan_items SET recipe_id = ?, score_json = ? WHERE plan_id = ? AND day = ? AND meal_type = ?`)
-    .run(pick.recipe.id, JSON.stringify(pick.result), planId, day, mealType);
+  const remaining = Math.max(1, profile.budget_weekly - plan.items.reduce((s, it) => {
+    let c = it.score ? it.score.factors.cost_estimate : 0;
+    if (it.side_score) c += it.side_score.factors.cost_estimate;
+    return s + c;
+  }, 0));
+
+  if (target === 'side') {
+    const main = item.recipe_id ? db.prepare('SELECT * FROM recipes WHERE id = ?').get(item.recipe_id) : null;
+    if (!main) return;
+    main.ingredients = db.prepare('SELECT * FROM recipe_ingredients WHERE recipe_id = ?').all(main.id);
+    const sidePool = allRecipes.filter(r => r.meal_type === 'side' && r.id !== item.side_recipe_id);
+    if (!sidePool.length) return;
+    const costOverrides = {};
+    for (const r of sidePool) {
+      const est = productCache.estimateRecipeCost(r.id);
+      if (est.total > 0 && est.covered / est.total >= 0.5) costOverrides[r.id] = est.cost;
+    }
+    const pick = pickSideFor(main, sidePool, { profile, usedCounts, remainingBudget: remaining, slotsLeft: 1, mealType: 'side', costOverrides });
+    if (!pick) return;
+    db.prepare(`UPDATE weekly_plan_items SET side_recipe_id = ?, side_score_json = ? WHERE plan_id = ? AND day = ? AND meal_type = ?`)
+      .run(pick.recipe.id, JSON.stringify(pick.result), planId, day, mealType);
+  } else {
+    const pool = allRecipes.filter(r => r.meal_type === mealType && r.id !== item.recipe_id);
+    if (!pool.length) return;
+    const costOverrides = {};
+    for (const r of pool) {
+      const est = productCache.estimateRecipeCost(r.id);
+      if (est.total > 0 && est.covered / est.total >= 0.5) costOverrides[r.id] = est.cost;
+    }
+    const scored = pool.map(r => ({ recipe: r, result: scoreRecipe(r, { profile, usedCounts, remainingBudget: remaining, slotsLeft: 1, mealType, costOverrides }) }));
+    scored.sort((a, b) => b.result.total - a.result.total);
+    const pick = scored[0];
+    db.prepare(`UPDATE weekly_plan_items SET recipe_id = ?, score_json = ? WHERE plan_id = ? AND day = ? AND meal_type = ?`)
+      .run(pick.recipe.id, JSON.stringify(pick.result), planId, day, mealType);
+  }
 }
 
 function approvePlan(planId) {

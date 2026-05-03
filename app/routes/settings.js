@@ -22,7 +22,8 @@ router.post('/settings', (req, res) => {
     if (typeof v === 'string') return JSON.stringify(v.split(',').map(s => s.trim()).filter(Boolean));
     return '[]';
   };
-  const mealTypes = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].filter(t => body['meal_' + t]);
+  const mealTypes = ['breakfast', 'lunch', 'snack', 'dinner'].filter(t => body['meal_' + t]);
+  const pairSidesWith = ['lunch', 'dinner'].filter(t => body['pair_sides_' + t]);
   const budget = parseFloat(body.budget_weekly);
   const warnings = [];
   if (!isFinite(budget) || budget <= 0) warnings.push('Budget must be positive');
@@ -30,8 +31,8 @@ router.post('/settings', (req, res) => {
 
   db.prepare(`UPDATE household_profiles SET
     name = ?, budget_weekly = ?, optimization_mode = ?, breakfast_simplicity = ?, max_prep_time = ?,
-    meal_types_json = ?, dietary_constraints_json = ?, allergies_json = ?, disliked_ingredients_json = ?,
-    favorite_meals_json = ?, preferred_cuisines_json = ?
+    meal_types_json = ?, pair_sides_with_json = ?, dietary_constraints_json = ?, allergies_json = ?,
+    disliked_ingredients_json = ?, favorite_meals_json = ?, preferred_cuisines_json = ?
     WHERE id = ?`)
     .run(
       body.name || 'Household',
@@ -40,6 +41,7 @@ router.post('/settings', (req, res) => {
       body.breakfast_simplicity ? 1 : 0,
       parseInt(body.max_prep_time, 10) || 45,
       JSON.stringify(mealTypes.length ? mealTypes : ['dinner']),
+      JSON.stringify(pairSidesWith),
       toJSONList(body.dietary_constraints),
       toJSONList(body.allergies),
       toJSONList(body.disliked_ingredients),
