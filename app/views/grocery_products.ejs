@@ -2,8 +2,8 @@
 <h1>Products</h1>
 
 <form method="get" action="/grocery/products" class="card">
-  <label>Search by name or brand
-    <input name="q" value="<%= q %>" placeholder="bread, kraft, ..." style="min-width: 260px" />
+  <label>Search by name
+    <input name="q" value="<%= q %>" placeholder="bread, milk, broccoli..." style="min-width: 260px" />
   </label>
   <button class="btn primary" type="submit">Search</button>
   <% if (q) { %><a class="btn" href="/grocery/products">Clear</a><% } %>

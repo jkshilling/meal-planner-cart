@@ -12,7 +12,26 @@
 <body>
   <header class="topnav">
     <div class="brand">
-      <span class="brand-mark"></span>
+      <svg class="brand-mark" viewBox="0 0 40 40" width="34" height="34"
+           xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="brandBowl" x1="0.5" y1="0" x2="0.5" y2="1">
+            <stop offset="0%" stop-color="#c88b3a"/>
+            <stop offset="100%" stop-color="#7c2d3c"/>
+          </linearGradient>
+        </defs>
+        <!-- steam wisps -->
+        <g stroke="#7e9b6f" stroke-width="1.8" stroke-linecap="round" fill="none">
+          <path d="M14 11 C 12 14 16 16 14 19" opacity="0.55"/>
+          <path d="M20 7 C 18 10 22 13 20 17" opacity="0.9"/>
+          <path d="M26 11 C 24 14 28 16 26 19" opacity="0.55"/>
+        </g>
+        <!-- bowl body (half-circle below the rim) -->
+        <path d="M7 22 L33 22 A13 13 0 0 1 7 22 Z" fill="url(#brandBowl)"/>
+        <!-- rim highlight -->
+        <line x1="7.5" y1="22" x2="32.5" y2="22"
+              stroke="#faf7f2" stroke-width="1.5" stroke-linecap="round" opacity="0.45"/>
+      </svg>
       <span class="brand-text">Meal Planner</span>
     </div>
     <nav>

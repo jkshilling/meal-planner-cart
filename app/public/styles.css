@@ -82,14 +82,11 @@ a:hover { color: var(--burgundy-ink); text-decoration: underline; }
   color: var(--ink);
 }
 .brand-mark {
-  display: inline-block;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 30% 30%, #e9c07a, #c88b3a 60%, #8c5c18);
-  box-shadow: inset -2px -2px 4px rgba(0,0,0,0.15);
+  display: block;
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
 }
+.brand:hover .brand-mark { transform: rotate(-4deg) scale(1.05); }
 .topnav nav a {
   color: var(--ink-soft);
   margin-left: 22px;

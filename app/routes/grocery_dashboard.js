@@ -44,13 +44,16 @@ router.get('/grocery/products', (req, res) => {
   let rows;
   if (q) {
     const like = '%' + q.replace(/%/g, '') + '%';
+    // Brand isn't currently populated by the food-buyer extension, so the
+    // search only filters by name. Brand column stays in the table for if/when
+    // we start extracting it.
     rows = db.prepare(`
       SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at, last_seen_at, image_url
         FROM walmart_products
-       WHERE name LIKE ? OR brand LIKE ?
+       WHERE name LIKE ?
     ORDER BY last_seen_at DESC
        LIMIT 200
-    `).all(like, like);
+    `).all(like);
   } else {
     rows = db.prepare(`
       SELECT id, name, brand, size_text, unit_price, latest_price, latest_price_at, last_seen_at, image_url
