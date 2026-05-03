@@ -24,6 +24,45 @@ function normalize(name) {
   return (name || '').toLowerCase().trim().replace(/\s+/g, ' ');
 }
 
+// Recipes commonly write ingredients with prep modifiers ("chopped tomatoes",
+// "minced beef", "mozzarella balls") that confuse FDC's search engine —
+// the engine matches on ANY word, so "chopped tomatoes" can return "Pork chop"
+// because "chop" is in the description. Strip the noise so the food name
+// actually drives the search.
+const STRIP_WORDS = new Set([
+  // prep verbs
+  'minced', 'chopped', 'sliced', 'diced', 'grated', 'shredded', 'ground',
+  'crushed', 'crumbled', 'cubed', 'pureed', 'mashed', 'torn', 'rolled', 'beaten',
+  // forms / cuts / shapes (NOT food-part words like 'breast', 'thigh', 'leg')
+  'whole', 'halved', 'quartered', 'julienned', 'peeled',
+  'sheets', 'pieces', 'strips', 'cubes', 'wedges', 'rounds', 'balls', 'sticks',
+  'slices', 'slice',
+  // states (NOT 'canned' — nutritionally different from raw)
+  'fresh', 'dried', 'raw', 'cooked', 'frozen', 'baked', 'roasted',
+  'smoked', 'fried', 'sauteed', 'grilled', 'steamed', 'boiled',
+  // sizes / quality grades
+  'large', 'medium', 'small', 'baby', 'mini', 'jumbo', 'extra',
+  // structural
+  'boneless', 'skinless', 'deboned', 'virgin'
+]);
+
+function cleanQuery(s) {
+  if (!s) return '';
+  const cleaned = s.toLowerCase().split(/\s+/).filter(w => !STRIP_WORDS.has(w)).join(' ').trim();
+  // Fall back to the original if every word got stripped (e.g. "fresh") —
+  // better to search something dumb than nothing at all.
+  return cleaned || s.toLowerCase().trim();
+}
+
+// Defensive backstop: even with FDC's requireAllWords param, sometimes a
+// match slips through where the description doesn't actually contain all
+// the query words. Reject those locally.
+function descContainsAllWords(desc, query) {
+  const d = (desc || '').toLowerCase();
+  const words = (query || '').toLowerCase().split(/\s+/).filter(Boolean);
+  return words.every(w => d.includes(w));
+}
+
 // Map FDC's nutrient names + required unit → our schema fields. FDC returns
 // energy in BOTH kcal and kJ; we filter to kcal so calories aren't 4x reality.
 const NUTRIENT_MAP = {
@@ -112,8 +151,10 @@ function scoreFood(food, query) {
 
 // Hit FDC, return the best-match nutrition for an ingredient name, or null.
 // Caches successful AND empty results so we don't repeatedly retry failures.
+// Cache key is the CLEANED ingredient name, so "chopped tomatoes",
+// "diced tomatoes", and "tomatoes" all share one cache entry.
 async function searchFood(rawName) {
-  const ingredientName = normalize(rawName);
+  const ingredientName = cleanQuery(normalize(rawName));
   if (!ingredientName) return null;
 
   const cached = db.prepare('SELECT * FROM nutrition_lookups WHERE ingredient_name = ?').get(ingredientName);
@@ -122,16 +163,19 @@ async function searchFood(rawName) {
   try {
     const url = `${FDC_BASE}/foods/search?query=${encodeURIComponent(ingredientName)}`
       + `&dataType=${encodeURIComponent(FDC_DATA_TYPES.join(','))}`
-      + `&pageSize=10&api_key=${apiKey()}`;
+      + `&requireAllWords=true`
+      + `&pageSize=25&api_key=${apiKey()}`;
     const res = await fetch(url);
     if (!res.ok) {
-      // 429 = rate-limited (DEMO_KEY exhausted), don't poison the cache
+      // 429 = rate-limited, don't poison the cache
       if (res.status === 429) return null;
       throw new Error(`FDC ${res.status}`);
     }
     const data = await res.json();
-    const candidates = (data.foods || []);
-    // Pick the candidate that's most likely to be a generic, complete entry.
+    // Belt-and-suspenders: filter to candidates whose descriptions actually
+    // contain every query word. Sometimes FDC's requireAllWords still lets
+    // partial-stem matches through.
+    const candidates = (data.foods || []).filter(f => descContainsAllWords(f.description, ingredientName));
     candidates.sort((a, b) => scoreFood(b, ingredientName) - scoreFood(a, ingredientName));
     const food = candidates[0] || null;
     const nutrients = food ? extractNutrients(food) : {
