@@ -133,7 +133,7 @@ function copyFromOwnerLibrary(targetUserId, sourceUserId) {
   const have = userSourceIds(targetUserId);
   const excluded = excludedSourceIds();
   const sources = db.prepare(`
-    SELECT id, name, meal_type, cuisine, kid_friendly, prep_time, servings,
+    SELECT id, name, meal_type, cuisine, prep_time, servings,
            est_cost, calories, protein, fiber, sugar, sodium, notes, source_id
       FROM recipes
      WHERE user_id = ? AND source_id IS NOT NULL
@@ -179,7 +179,6 @@ function importFromStagedJson(targetUserId) {
     name: r.name || 'Untitled',
     meal_type: r.meal_type || 'dinner',
     cuisine: r.cuisine || null,
-    kid_friendly: r.kid_friendly ? 1 : 0,
     prep_time: r.prep_time || 30,
     servings: r.servings || 4,
     est_cost: typeof r.est_cost === 'number' ? r.est_cost : 10,
@@ -240,9 +239,9 @@ function excludeFromMasterLibrary(sourceId, reason) {
 function insertRecipesAndIngredients(userId, rows, getIngredients) {
   const insertRecipe = db.prepare(`
     INSERT INTO recipes
-      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost,
+      (name, meal_type, cuisine, prep_time, servings, est_cost,
        calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `);
   const insertIng = db.prepare(
     'INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)'
@@ -250,7 +249,7 @@ function insertRecipesAndIngredients(userId, rows, getIngredients) {
   const tx = db.transaction(() => {
     for (const r of rows) {
       const info = insertRecipe.run(
-        r.name, r.meal_type, r.cuisine, r.kid_friendly,
+        r.name, r.meal_type, r.cuisine,
         r.prep_time, r.servings, r.est_cost,
         r.calories, r.protein, r.fiber, r.sugar, r.sodium,
         r.notes, userId, r.source_id

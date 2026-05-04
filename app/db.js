@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS recipes (
   name TEXT NOT NULL,
   meal_type TEXT NOT NULL,
   cuisine TEXT,
-  kid_friendly INTEGER NOT NULL DEFAULT 0,
   prep_time INTEGER NOT NULL DEFAULT 20,
   servings INTEGER NOT NULL DEFAULT 2,
   est_cost REAL NOT NULL DEFAULT 8,
@@ -372,6 +371,14 @@ dropColumnIfExists('shopping_items', 'brand_preference');
 // databases; new ones never create them in the first place.
 db.exec('DROP TABLE IF EXISTS walmart_matches');
 db.exec('DROP TABLE IF EXISTS automation_runs');
+
+// kid_friendly was a manual flag + +0.1 planner boost gated on
+// hasKids(profile). Removed entirely — moms (and dads) just mark
+// kid-acceptable recipes as Favorites, which already gets a +0.15 boost
+// and is more honest about what "kid-friendly" really means: "this
+// recipe is one we like." The column is dropped from the schema; new
+// databases never have it.
+dropColumnIfExists('recipes', 'kid_friendly');
 
 // household_members.lunch_behavior → meal_behavior_json migration.
 // The old single column gated lunch only ('plan' | 'school' | 'skip').

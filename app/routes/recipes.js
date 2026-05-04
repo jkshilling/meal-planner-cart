@@ -175,9 +175,9 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
     }
 
     const info = db.prepare(`INSERT INTO recipes
-      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(recipe.name, mealType, recipe.cuisine, 0, recipe.prep_time, recipe.servings, recipe.est_cost,
+      (name, meal_type, cuisine, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(recipe.name, mealType, recipe.cuisine, recipe.prep_time, recipe.servings, recipe.est_cost,
            calories, protein, fiber, sugar, sodium, 0, recipe.notes, uid, sourceId);
     const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
     for (const ing of recipe.ingredients) {
@@ -199,13 +199,12 @@ router.post('/recipes', requireAuth, async (req, res) => {
   // compute against. Form values still ride along as fallback.
   const nut = await recomputeNutrition(ings, servings);
   const info = db.prepare(`INSERT INTO recipes
-    (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (name, meal_type, cuisine, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
       name || 'Untitled',
       mealType,
       (b.cuisine || '').trim() || null,
-      b.kid_friendly ? 1 : 0,
       parseInt(b.prep_time, 10) || 20,
       servings,
       parseFloat(b.est_cost) || 8,
@@ -237,14 +236,13 @@ router.post('/recipes/:id', requireAuth, async (req, res) => {
   // does it for them.
   const nut = await recomputeNutrition(ings, servings);
   db.prepare(`UPDATE recipes SET
-    name = ?, meal_type = ?, cuisine = ?, kid_friendly = ?, prep_time = ?, servings = ?, est_cost = ?,
+    name = ?, meal_type = ?, cuisine = ?, prep_time = ?, servings = ?, est_cost = ?,
     calories = ?, protein = ?, fiber = ?, sugar = ?, sodium = ?, favorite = ?, notes = ?
     WHERE id = ? AND user_id = ?`)
     .run(
       (b.name || 'Untitled').trim(),
       (b.meal_type || 'dinner').trim(),
       (b.cuisine || '').trim() || null,
-      b.kid_friendly ? 1 : 0,
       parseInt(b.prep_time, 10) || 20,
       servings,
       parseFloat(b.est_cost) || 8,

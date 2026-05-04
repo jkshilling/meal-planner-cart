@@ -85,7 +85,6 @@ function spoonacularToRecipe(r) {
     name: r.title || 'Untitled',
     meal_type: guessMealType(r),
     cuisine: normalizeCuisine(r),
-    kid_friendly: 0,
     prep_time: r.readyInMinutes || 30,
     servings: r.servings || 4,
     est_cost: priceUSDFor(r) ?? 10,

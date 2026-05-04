@@ -129,10 +129,6 @@ function recipePassesFiltersForSlot(recipe, profile, mealType) {
   return true;
 }
 
-function hasKids(profile) {
-  return profile.members.some(m => (m.label || '').toLowerCase() === 'child');
-}
-
 // How many household members actually eat the given meal type (i.e. their
 // per-meal behavior is 'plan' rather than 'school' or 'skip'). Used in place
 // of the old householdSize() so portion math and cost estimates reflect the
@@ -184,7 +180,6 @@ function scoreRecipe(recipe, ctx) {
   const favoriteBoost = recipe.favorite ? 0.15 : 0;
 
   let fitBoost = 0;
-  if (hasKids(profile) && recipe.kid_friendly) fitBoost += 0.1;
   if (mealType === 'breakfast' && profile.breakfast_simplicity && recipe.prep_time <= 15) fitBoost += 0.15;
 
   let weights;
@@ -228,12 +223,10 @@ function buildSlots(profile) {
 // but with a side-specific pairing layer:
 //   - carb-on-carb penalty: -0.3 if main and side share carb tag
 //   - cuisine match: +0.1 boost
-//   - kid-friendly carry-over: +0.1 if main is kid_friendly and household has kids
 function pickSideFor(main, sidePool, ctx) {
   if (!sidePool.length) return null;
   const mainCarb = carbTagFor(main);
   const mainCuisine = (main.cuisine || '').toLowerCase();
-  const profile = ctx.profile;
 
   const scored = sidePool.map(side => {
     const base = scoreRecipe(side, ctx);
@@ -242,7 +235,6 @@ function pickSideFor(main, sidePool, ctx) {
     let pairing = 0;
     if (mainCarb !== 'none' && sideCarb === mainCarb) pairing -= 0.3;
     if (mainCuisine && side.cuisine && mainCuisine === side.cuisine.toLowerCase()) pairing += 0.1;
-    if (hasKids(profile) && main.kid_friendly && side.kid_friendly) pairing += 0.1;
 
     return {
       recipe: side,
@@ -390,7 +382,7 @@ function loadPlan(planId) {
   const items = db.prepare(`
     SELECT wpi.*,
            r.name as recipe_name, r.prep_time, r.est_cost, r.servings,
-           r.calories, r.protein, r.fiber, r.sugar, r.sodium, r.kid_friendly,
+           r.calories, r.protein, r.fiber, r.sugar, r.sodium,
            sr.name as side_recipe_name, sr.prep_time as side_prep_time, sr.est_cost as side_est_cost
     FROM weekly_plan_items wpi
     LEFT JOIN recipes r  ON wpi.recipe_id = r.id
@@ -502,6 +494,5 @@ module.exports = {
   updateSlot,
   regenerateSlot,
   approvePlan,
-  hasKids,
   dinersFor
 };
