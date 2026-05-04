@@ -228,7 +228,7 @@
             <% } %>
           </td>
           <td class="actions">
-            <a class="link" href="/recipes?edit=<%= r.id %>">edit</a>
+            <a class="link" href="/recipes?edit=<%= r.id %>">view</a>
             <form method="post" action="/recipes/<%= r.id %>/delete" class="delete-form" data-name="<%= r.name %>" style="display:inline">
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="link delete-link" type="submit">delete</button>
