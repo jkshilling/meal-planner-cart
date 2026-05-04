@@ -102,14 +102,29 @@ function spoonacularToRecipe(r) {
 
 // complexSearch with addRecipeInformation/Nutrition gets us everything in one
 // call — full recipe data for each result, no second per-import lookup.
-async function searchByName(query, limit = 8) {
+//
+// Accepts either a free-text `query` (themed pull, e.g. "chicken curry"),
+// a Spoonacular `type` filter (broad dish-type pull, e.g. "side dish"),
+// or both. Without `query`, the type filter alone returns Spoonacular's
+// most popular recipes of that dishType — useful for filling buckets
+// where you want variety, not specific themes (sides, snacks, salads).
+async function searchRecipes(opts) {
   if (!isEnabled()) throw new Error('SPOONACULAR_API_KEY not set');
-  const url = `${SP_BASE}/recipes/complexSearch?query=${encodeURIComponent(query)}`
-    + `&number=${limit}`
-    + `&addRecipeInformation=true`
-    + `&addRecipeNutrition=true`
-    + `&instructionsRequired=true`
-    + `&apiKey=${encodeURIComponent(apiKey())}`;
+  const { query, type, limit = 8, offset = 0, sort } = opts || {};
+  if (!query && !type) throw new Error('searchRecipes: query or type required');
+  const params = new URLSearchParams({
+    number: String(limit),
+    addRecipeInformation: 'true',
+    addRecipeNutrition: 'true',
+    fillIngredients: 'true',  // populates extendedIngredients on each result
+    instructionsRequired: 'true',
+    apiKey: apiKey()
+  });
+  if (query) params.set('query', query);
+  if (type)  params.set('type', type);
+  if (offset) params.set('offset', String(offset));
+  if (sort) params.set('sort', sort);
+  const url = `${SP_BASE}/recipes/complexSearch?${params.toString()}`;
   const res = await fetch(url);
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -117,6 +132,11 @@ async function searchByName(query, limit = 8) {
   }
   const data = await res.json();
   return (data.results || []).map(spoonacularToRecipe).filter(Boolean);
+}
+
+// Backward-compat wrapper. Same signature as the old function.
+async function searchByName(query, limit = 8) {
+  return searchRecipes({ query, limit });
 }
 
 async function lookupById(id) {
@@ -128,4 +148,4 @@ async function lookupById(id) {
   return spoonacularToRecipe(data);
 }
 
-module.exports = { isEnabled, searchByName, lookupById, spoonacularToRecipe };
+module.exports = { isEnabled, searchByName, searchRecipes, lookupById, spoonacularToRecipe };
