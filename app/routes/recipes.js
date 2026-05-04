@@ -122,6 +122,15 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
     return res.redirect('/recipes?import_err=' + encodeURIComponent('SPOONACULAR_API_KEY not set'));
   }
   try {
+    const uid = userIdOf(req);
+    // Skip if this Spoonacular recipe is already in the user's library.
+    const existing = db.prepare(
+      'SELECT id FROM recipes WHERE user_id = ? AND source_id = ?'
+    ).get(uid, sourceId);
+    if (existing) {
+      return res.redirect('/recipes?edit=' + existing.id);
+    }
+
     const recipe = await spoonacular.lookupById(sourceId);
     if (!recipe) return res.redirect('/recipes?import_err=not_found');
     const mealType = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].includes(b.meal_type) ? b.meal_type : recipe.meal_type;
@@ -136,10 +145,10 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
     }
 
     const info = db.prepare(`INSERT INTO recipes
-      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(recipe.name, mealType, recipe.cuisine, 0, recipe.prep_time, recipe.servings, recipe.est_cost,
-           calories, protein, fiber, sugar, sodium, 0, recipe.notes, userIdOf(req));
+           calories, protein, fiber, sugar, sodium, 0, recipe.notes, uid, sourceId);
     const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
     for (const ing of recipe.ingredients) {
       insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);

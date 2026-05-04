@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS recipes (
   sodium REAL,
   favorite INTEGER NOT NULL DEFAULT 0,
   notes TEXT,
+  -- External source ID (e.g. Spoonacular recipe ID, stringified). NULL for
+  -- hand-entered recipes. data/seed.js + routes/recipes.js use this to
+  -- skip re-importing recipes that already exist for a user.
+  source_id TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -405,6 +409,16 @@ ensureColumn('household_members', 'disliked_ingredients_json',`TEXT NOT NULL DEF
 // members start with no packed meals (preserves current behavior — they'll
 // only get packed groceries on the shopping list once they pick a recipe).
 ensureColumn('household_members', 'packed_recipe_ids_json',   `TEXT NOT NULL DEFAULT '{}'`);
+
+// Spoonacular (or other external) source ID, used by data/seed.js and the
+// manual import route to dedupe on re-import. Stringified — Spoonacular IDs
+// are integers but we don't want to assume that for future sources.
+ensureColumn('recipes', 'source_id', 'TEXT');
+// Partial index would be ideal here but SQLite UNIQUE-on-non-null is awkward
+// to retrofit cleanly. Plain index gives us the lookup speed without the
+// uniqueness guarantee — duplicate detection happens in app code which can
+// scope to user_id anyway.
+db.exec('CREATE INDEX IF NOT EXISTS idx_recipes_user_source ON recipes(user_id, source_id)');
 {
   const profileCols = db.prepare('PRAGMA table_info(household_profiles)').all().map(c => c.name);
   // Only backfill while the legacy household-level columns still exist.

@@ -1,21 +1,25 @@
-# Daily Spoonacular seed-pull cron for meal-planner-cart.
+# Daily Spoonacular seed-pull + DB-import cron for meal-planner-cart.
 #
 # Fires at 00:05 UTC every day — five minutes after the Spoonacular daily
-# quota resets — and pulls until the 50-point free-tier limit is hit
-# (typically ~10 recipes per night). Script is resumable: results
-# accumulate in /srv/meal-planner-cart/data/spoonacular-seed.json across
-# nights until the full PLAN_FULL is exhausted (~25 nights for ~250
-# recipes).
+# quota resets — and:
+#   1. fetch-seed.js  pulls until the 50-point free-tier limit is hit
+#      (typically ~10 recipes per night) and appends to
+#      /srv/meal-planner-cart/data/spoonacular-seed.json (resumable across
+#      nights until the full PLAN_FULL is exhausted, ~25 nights / ~250
+#      recipes).
+#   2. seed.js  imports any newly-staged recipes from that JSON into the DB,
+#      attributed to BOOTSTRAP_OWNER_EMAIL's user. Idempotent: dedupes by
+#      source_id within that user's library, so re-running is a no-op.
 #
 # Installed by deploy/deploy.sh into /etc/cron.d/meal-planner-cart-fetch.
 # Do NOT edit on the droplet directly — update this file in the repo and
 # re-run deploy.sh.
 #
 # Logs append to /srv/meal-planner-cart/data/fetch.log (gitignored).
-# Tail the log to see what was pulled most recently:
-#   tail -50 /srv/meal-planner-cart/data/fetch.log
+# Tail the log to see what was pulled + imported most recently:
+#   tail -100 /srv/meal-planner-cart/data/fetch.log
 
 PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 SHELL=/bin/sh
 
-5 0 * * * www-data cd /srv/meal-planner-cart && /usr/bin/node data/fetch-seed.js --plan full >> data/fetch.log 2>&1
+5 0 * * * www-data cd /srv/meal-planner-cart && /usr/bin/node data/fetch-seed.js --plan full >> data/fetch.log 2>&1 && /usr/bin/node data/seed.js >> data/fetch.log 2>&1
