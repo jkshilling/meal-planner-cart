@@ -240,9 +240,12 @@ function scoreFood(food, query) {
   return score;
 }
 
-// Single round-trip to USDA FoodData Central. Returns the best-scoring
-// candidate, or null if FDC has nothing usable. Throws on transport errors
-// so the caller can decide whether to swallow or escalate.
+// Single round-trip to USDA FoodData Central. Returns the FILTERED+SORTED
+// list of candidates so the caller can walk down the list with LLM-verify
+// (USDA's static scoring frequently picks a derivative product as #1
+// while the canonical entry is at #4 or #10 — e.g. "Bread, cinnamon" #1
+// vs "Spices, cinnamon, ground" #4 for query "cinnamon"). Throws on
+// transport errors.
 async function fdcLookup(query) {
   const url = `${FDC_BASE}/foods/search?query=${encodeURIComponent(query)}`
     + `&dataType=${encodeURIComponent(FDC_DATA_TYPES.join(','))}`
@@ -252,7 +255,7 @@ async function fdcLookup(query) {
   if (!res.ok) {
     // 429 = rate-limited; signal to the caller so it can decline to poison
     // the cache.
-    if (res.status === 429) return { rateLimited: true, food: null };
+    if (res.status === 429) return { rateLimited: true, candidates: [] };
     throw new Error(`FDC ${res.status}`);
   }
   const data = await res.json();
@@ -266,7 +269,33 @@ async function fdcLookup(query) {
     .filter(f => descContainsAllWords(f.description, query))
     .filter(f => !looksBranded(f.description || ''));
   candidates.sort((a, b) => scoreFood(b, query) - scoreFood(a, query));
-  return { rateLimited: false, food: candidates[0] || null };
+  return { rateLimited: false, candidates };
+}
+
+// Walk USDA's top candidates, asking the LLM to verify each. Returns the
+// first candidate that verify accepts, or null if every candidate (up to
+// MAX_VERIFY) was explicitly rejected. A null verdict from the LLM
+// (network error / unparseable response) falls back to "trust USDA's
+// static scoring" — accept candidates[0] — so verify failures never make
+// the system worse than the no-LLM baseline.
+async function pickVerifiedCandidate(ingredientName, candidates) {
+  if (!candidates || !candidates.length) return null;
+  if (!llmCanonicalize.isEnabled()) return candidates[0];
+  const MAX_VERIFY = 5;
+  for (let i = 0; i < Math.min(MAX_VERIFY, candidates.length); i++) {
+    const verdict = await llmCanonicalize.verifyMatch(ingredientName, candidates[i].description);
+    if (verdict === true) return candidates[i];
+    if (verdict === null) {
+      // Couldn't determine — fall back to USDA's static-scored top. Don't
+      // reject on LLM uncertainty; the original behavior was "trust USDA",
+      // and verify is a refinement, not a gate.
+      return candidates[0];
+    }
+    // verdict === false → continue to next candidate
+  }
+  // All candidates explicitly rejected. Return null so the caller can try
+  // the LLM-rewrite path before falling back to candidates[0].
+  return null;
 }
 
 // Hit FDC, return the best-match nutrition for an ingredient name, or null.
@@ -274,21 +303,27 @@ async function fdcLookup(query) {
 // Cache key is the CLEANED ingredient name, so "chopped tomatoes",
 // "diced tomatoes", and "tomatoes" all share one cache entry.
 //
-// LLM steps (services/llm_canonicalize) on the path:
-//   1. VERIFY — if FDC returned a candidate, ask the LLM whether it's a
-//      semantically reasonable match for the ingredient name. This catches
-//      USDA's heuristic-scoring failures ("cinnamon" → "Cinnamon buns,
-//      frosted") that no static rule reliably catches. On a "no" verdict
-//      we treat it as if FDC had returned nothing and fall through to:
-//   2. REWRITE — if FDC returned nothing (or VERIFY rejected), ask the LLM
-//      for a USDA-friendlier rewrite of the name and retry FDC once. The
-//      retry's match is trusted as-is (we don't recurse VERIFY on it; the
-//      rewrite itself encodes the LLM's judgement).
+// USDA is the data source for nutrition values — every calorie / protein /
+// sodium number in the cache comes from FoodData Central. The LLM
+// (services/llm_canonicalize) is used only as a candidate selector and
+// query rewriter:
 //
-// Both LLM steps are silently skipped if no OPENAI_API_KEY is configured.
-// Either way the final result — match or no-match — is cached under the
-// ORIGINAL canonical key so we never run this dance twice for the same
-// input.
+//   1. VERIFIED PICK — fdcLookup returns up to 25 candidates sorted by our
+//      static score. Walk the top N (default 5) asking the LLM whether
+//      each is a reasonable match for the ingredient name. Accept the
+//      first "yes". Catches the case where USDA's static scoring picks
+//      "Bread, cinnamon" #1 but the canonical "Spices, cinnamon, ground"
+//      sits at #4.
+//   2. REWRITE FALLBACK — if every walked candidate is rejected, ask the
+//      LLM for a USDA-friendlier rewrite of the name and retry FDC once.
+//      The retry's top candidate is trusted as-is.
+//   3. SAFETY NET — if verify rejected everything AND rewrite didn't help,
+//      fall back to FDC's original top match. Verify must only IMPROVE on
+//      the no-LLM baseline, never make it worse.
+//
+// All LLM steps are silently skipped if no OPENAI_API_KEY is configured.
+// The final result — match or no-match — is cached under the original
+// canonical key so we never run this dance twice for the same input.
 async function searchFood(rawName) {
   const ingredientName = canonicalize(rawName);
   if (!ingredientName) return null;
@@ -297,20 +332,14 @@ async function searchFood(rawName) {
   if (cached) return cached;
 
   try {
-    let { rateLimited, food } = await fdcLookup(ingredientName);
-    if (rateLimited) return null;  // don't poison the cache; try again next render
+    const initial = await fdcLookup(ingredientName);
+    if (initial.rateLimited) return null;  // don't poison the cache
 
-    // STEP 1 — VERIFY. Only invoke when we have a candidate to validate.
-    // null verdict means "could not determine" → trust the static scoring
-    // (don't reject on LLM uncertainty).
-    if (food) {
-      const verdict = await llmCanonicalize.verifyMatch(ingredientName, food.description);
-      if (verdict === false) {
-        food = null;  // reject; fall through to REWRITE
-      }
-    }
+    // STEP 1 — Walk the candidate list with verify; first "yes" wins.
+    let food = await pickVerifiedCandidate(ingredientName, initial.candidates);
 
-    // STEP 2 — REWRITE. Triggered by FDC zero-result OR VERIFY rejection.
+    // STEP 2 — Verify rejected every candidate (or USDA returned nothing
+    // at all) → ask the LLM to rewrite the query and retry USDA once.
     let llmSuggested = null;
     if (!food) {
       const suggested = await llmCanonicalize.suggestCanonical(ingredientName);
@@ -318,8 +347,16 @@ async function searchFood(rawName) {
         llmSuggested = suggested;
         const retry = await fdcLookup(suggested);
         if (retry.rateLimited) return null;
-        food = retry.food;
+        food = retry.candidates[0] || null;
       }
+    }
+
+    // STEP 3 — Safety net. If verify rejected the whole candidate list
+    // AND the rewrite produced no match (or echoed the input), use USDA's
+    // original top candidate. Better an imperfect match than silently
+    // dropping ingredients that USDA actually had data for.
+    if (!food && initial.candidates.length) {
+      food = initial.candidates[0];
     }
 
     const nutrients = food ? extractNutrients(food) : {
