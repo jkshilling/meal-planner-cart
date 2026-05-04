@@ -31,11 +31,73 @@ router.get('/settings', requireAuth, (req, res) => {
     total:       db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE user_id = ?').get(uid).n,
     fromMaster:  db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE user_id = ? AND source_id IS NOT NULL').get(uid).n
   };
+
+  // Ingredient nutrition coverage. Lists every ingredient name in the
+  // user's library that USDA isn't matching, with the count + names of
+  // affected recipes so the user can navigate straight to fix them.
+  // Status:
+  //   'no-match' = nutrition_lookups has a row with NULL calories
+  //                (USDA was queried, came back empty).
+  //   'pending'  = no row in nutrition_lookups at all yet
+  //                (USDA hasn't been asked about this name).
+  // Both states mean "this ingredient doesn't count toward nutrition."
+  const allUserIngs = db.prepare(`
+    SELECT DISTINCT LOWER(TRIM(ri.name)) AS ing_name
+      FROM recipe_ingredients ri
+      JOIN recipes r ON r.id = ri.recipe_id
+     WHERE r.user_id = ?
+  `).all(uid).map(r => r.ing_name).filter(Boolean);
+  let ingredientCoverage = { total_distinct: allUserIngs.length, unmatched: [] };
+  if (allUserIngs.length) {
+    const placeholders = allUserIngs.map(() => '?').join(',');
+    const cached = db.prepare(
+      `SELECT ingredient_name, calories_per_100g
+         FROM nutrition_lookups
+        WHERE ingredient_name IN (${placeholders})`
+    ).all(...allUserIngs);
+    const cacheState = new Map(); // name → 'matched' | 'no-match'
+    for (const r of cached) {
+      cacheState.set(r.ingredient_name, r.calories_per_100g != null ? 'matched' : 'no-match');
+    }
+    const unmatchedNames = [];
+    const unmatched = [];
+    for (const name of allUserIngs) {
+      const st = cacheState.has(name) ? cacheState.get(name) : 'pending';
+      if (st === 'matched') continue;
+      unmatched.push({ name, status: st, recipes: [] });
+      unmatchedNames.push(name);
+    }
+    if (unmatchedNames.length) {
+      const upPlaceholders = unmatchedNames.map(() => '?').join(',');
+      const usage = db.prepare(
+        `SELECT LOWER(TRIM(ri.name)) AS ing_name, r.id, r.name
+           FROM recipe_ingredients ri
+           JOIN recipes r ON r.id = ri.recipe_id
+          WHERE r.user_id = ?
+            AND LOWER(TRIM(ri.name)) IN (${upPlaceholders})`
+      ).all(uid, ...unmatchedNames);
+      const byName = {};
+      for (const u of unmatched) byName[u.name] = u;
+      for (const row of usage) {
+        const u = byName[row.ing_name];
+        if (u && !u.recipes.find(x => x.id === row.id)) {
+          u.recipes.push({ id: row.id, name: row.name });
+        }
+      }
+    }
+    // Most-used unmatched first, then alphabetical — surfaces the highest-
+    // impact rename targets at the top of the list.
+    unmatched.sort((a, b) =>
+      b.recipes.length - a.recipes.length || a.name.localeCompare(b.name)
+    );
+    ingredientCoverage.unmatched = unmatched;
+  }
   res.render('settings', {
     title: 'Settings',
     profile,
     recipes,
     libraryCounts,
+    ingredientCoverage,
     saved: req.query.saved === '1',
     groceryToken: groceryToken.ensureForUser(uid),
     tokenRotated: req.query.tokenRotated === '1',
