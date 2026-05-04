@@ -451,6 +451,14 @@ ensureColumn('recipes', 'source_id', 'TEXT');
 // OPENAI_API_KEY is configured). Useful for spot-checking the LLM's
 // judgement on the settings-page coverage card.
 ensureColumn('nutrition_lookups', 'llm_suggested_name', 'TEXT');
+
+// Carbs and total fat per 100g — added when the recipe edit form's
+// nutrition panel started showing 0 sugar for a grilled cheese (true:
+// no sugar) but no carbs/fat to balance the calorie count. USDA returns
+// both nutrients on every Foundation/SR Legacy entry; the schema just
+// wasn't capturing them. Existing rows have NULL until re-warmed.
+ensureColumn('nutrition_lookups', 'carbs_per_100g', 'REAL');
+ensureColumn('nutrition_lookups', 'fat_per_100g',   'REAL');
 // Partial index would be ideal here but SQLite UNIQUE-on-non-null is awkward
 // to retrofit cleanly. Plain index gives us the lookup speed without the
 // uniqueness guarantee — duplicate detection happens in app code which can

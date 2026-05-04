@@ -22,6 +22,8 @@ function attachNutrition(recipes) {
     const n = usda.nutritionFromCache(ings, r.servings);
     r.calories = n ? n.calories : null;
     r.protein  = n ? n.protein  : null;
+    r.carbs    = n ? n.carbs    : null;
+    r.fat      = n ? n.fat      : null;
     r.fiber    = n ? n.fiber    : null;
     r.sugar    = n ? n.sugar    : null;
     r.sodium   = n ? n.sodium   : null;

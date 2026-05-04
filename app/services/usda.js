@@ -145,6 +145,8 @@ const NUTRIENT_MAP = {
   'Energy':                          { field: 'calories_per_100g', unit: 'KCAL' },
   'Energy (Atwater General Factors)':{ field: 'calories_per_100g', unit: 'KCAL' },
   'Protein':                         { field: 'protein_per_100g',  unit: 'G' },
+  'Carbohydrate, by difference':     { field: 'carbs_per_100g',    unit: 'G' },
+  'Total lipid (fat)':               { field: 'fat_per_100g',      unit: 'G' },
   'Fiber, total dietary':            { field: 'fiber_per_100g',    unit: 'G' },
   'Sugars, total including NLEA':    { field: 'sugar_per_100g',    unit: 'G' },
   'Sugars, Total':                   { field: 'sugar_per_100g',    unit: 'G' },
@@ -155,6 +157,8 @@ function extractNutrients(food) {
   const out = {
     calories_per_100g: null,
     protein_per_100g: null,
+    carbs_per_100g: null,
+    fat_per_100g: null,
     fiber_per_100g: null,
     sugar_per_100g: null,
     sodium_per_100g: null
@@ -402,6 +406,7 @@ async function searchFood(rawName) {
 
     const nutrients = food ? extractNutrients(food) : {
       calories_per_100g: null, protein_per_100g: null,
+      carbs_per_100g: null, fat_per_100g: null,
       fiber_per_100g: null, sugar_per_100g: null, sodium_per_100g: null
     };
     const row = {
@@ -414,8 +419,9 @@ async function searchFood(rawName) {
     };
     db.prepare(`INSERT INTO nutrition_lookups
       (ingredient_name, matched_description, data_type, fdc_id, llm_suggested_name,
-       calories_per_100g, protein_per_100g, fiber_per_100g, sugar_per_100g, sodium_per_100g)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       calories_per_100g, protein_per_100g, carbs_per_100g, fat_per_100g,
+       fiber_per_100g, sugar_per_100g, sodium_per_100g)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(ingredient_name) DO UPDATE SET
         matched_description = excluded.matched_description,
         data_type = excluded.data_type,
@@ -423,11 +429,14 @@ async function searchFood(rawName) {
         llm_suggested_name = excluded.llm_suggested_name,
         calories_per_100g = excluded.calories_per_100g,
         protein_per_100g = excluded.protein_per_100g,
+        carbs_per_100g = excluded.carbs_per_100g,
+        fat_per_100g = excluded.fat_per_100g,
         fiber_per_100g = excluded.fiber_per_100g,
         sugar_per_100g = excluded.sugar_per_100g,
         sodium_per_100g = excluded.sodium_per_100g`)
       .run(row.ingredient_name, row.matched_description, row.data_type, row.fdc_id, row.llm_suggested_name,
-           row.calories_per_100g, row.protein_per_100g, row.fiber_per_100g, row.sugar_per_100g, row.sodium_per_100g);
+           row.calories_per_100g, row.protein_per_100g, row.carbs_per_100g, row.fat_per_100g,
+           row.fiber_per_100g, row.sugar_per_100g, row.sodium_per_100g);
     return row;
   } catch (e) {
     return null;  // best-effort; a failed lookup just means we skip this ingredient's nutrition
@@ -586,7 +595,7 @@ function nutritionFromCache(ingredients, servings) {
   // anyone ever wants to (and so the unit-conversion exports don't pull in
   // SQLite at module-load time).
   const db = require('../db');
-  let cal = 0, pro = 0, fi = 0, su = 0, so = 0;
+  let cal = 0, pro = 0, ca = 0, fa = 0, fi = 0, su = 0, so = 0;
   let covered = 0;
   const total = (ingredients || []).length;
   if (!total) return null;
@@ -600,6 +609,7 @@ function nutritionFromCache(ingredients, servings) {
   const placeholders = names.map(() => '?').join(',');
   const cached = db.prepare(
     `SELECT ingredient_name, calories_per_100g, protein_per_100g,
+            carbs_per_100g, fat_per_100g,
             fiber_per_100g, sugar_per_100g, sodium_per_100g
        FROM nutrition_lookups
       WHERE ingredient_name IN (${placeholders})`
@@ -615,6 +625,8 @@ function nutritionFromCache(ingredients, servings) {
     const factor = grams / 100;
     cal += (food.calories_per_100g || 0) * factor;
     pro += (food.protein_per_100g  || 0) * factor;
+    ca  += (food.carbs_per_100g    || 0) * factor;
+    fa  += (food.fat_per_100g      || 0) * factor;
     fi  += (food.fiber_per_100g    || 0) * factor;
     su  += (food.sugar_per_100g    || 0) * factor;
     so  += (food.sodium_per_100g   || 0) * factor;
@@ -625,6 +637,8 @@ function nutritionFromCache(ingredients, servings) {
   return {
     calories: Math.round(cal / s),
     protein:  +(pro / s).toFixed(1),
+    carbs:    +(ca  / s).toFixed(1),
+    fat:      +(fa  / s).toFixed(1),
     fiber:    +(fi  / s).toFixed(1),
     sugar:    +(su  / s).toFixed(1),
     sodium:   +(so  / s).toFixed(1),
@@ -636,7 +650,7 @@ function nutritionFromCache(ingredients, servings) {
 // Compute total recipe nutrition by summing per-ingredient values. Returns
 // per-serving numbers (so health scoring stays comparable across recipes).
 async function recipeNutrition(ingredients, servings) {
-  let cal = 0, pro = 0, fi = 0, su = 0, so = 0;
+  let cal = 0, pro = 0, ca = 0, fa = 0, fi = 0, su = 0, so = 0;
   let covered = 0;
   for (const ing of ingredients || []) {
     const grams = unitToGrams(ing.quantity, ing.unit, ing.name);
@@ -646,6 +660,8 @@ async function recipeNutrition(ingredients, servings) {
     const factor = grams / 100;
     cal += (food.calories_per_100g || 0) * factor;
     pro += (food.protein_per_100g || 0) * factor;
+    ca  += (food.carbs_per_100g || 0)    * factor;
+    fa  += (food.fat_per_100g || 0)      * factor;
     fi  += (food.fiber_per_100g || 0)    * factor;
     su  += (food.sugar_per_100g || 0)    * factor;
     so  += (food.sodium_per_100g || 0)   * factor;
@@ -656,6 +672,8 @@ async function recipeNutrition(ingredients, servings) {
   return {
     calories: Math.round(cal / s),
     protein:  +(pro / s).toFixed(1),
+    carbs:    +(ca  / s).toFixed(1),
+    fat:      +(fa  / s).toFixed(1),
     fiber:    +(fi  / s).toFixed(1),
     sugar:    +(su  / s).toFixed(1),
     sodium:   +(so  / s).toFixed(1),

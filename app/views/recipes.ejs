@@ -81,6 +81,8 @@
            data-partial="<%= partialInit ? '1' : '0' %>">
         <span><strong>Calories:</strong> <span id="n-calories" class="<%= initN.calories == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.calories) %><% if (partialInit && initN.calories != null) { %> <span aria-label="partial">(?)</span><% } %></span></span>
         <span><strong>Protein:</strong> <span id="n-protein" class="<%= initN.protein == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.protein) %></span> g</span>
+        <span><strong>Carbs:</strong> <span id="n-carbs" class="<%= initN.carbs == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.carbs) %></span> g</span>
+        <span><strong>Fat:</strong> <span id="n-fat" class="<%= initN.fat == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.fat) %></span> g</span>
         <span><strong>Fiber:</strong> <span id="n-fiber" class="<%= initN.fiber == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.fiber) %></span> g</span>
         <span><strong>Sugar:</strong> <span id="n-sugar" class="<%= initN.sugar == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.sugar) %></span> g</span>
         <span><strong>Sodium:</strong> <span id="n-sodium" class="<%= initN.sodium == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.sodium) %></span> mg</span>
@@ -96,8 +98,15 @@
     <div class="grid">
       <fieldset>
         <legend>Ingredients</legend>
-        <table class="grid-table">
-          <thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th></th></tr></thead>
+        <table class="grid-table ingredients-table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th style="width: 80px">Qty</th>
+              <th style="width: 110px">Unit</th>
+              <th style="width: 32px"></th>
+            </tr>
+          </thead>
           <tbody id="ings">
             <%
               var ings = editing && editing.ingredients.length
@@ -400,7 +409,7 @@ var nutritionDebounceTimer = null;
 // numbers are real but undercounted. Italicize via partial-nutrition class
 // and add a (?) marker on Calories so the user can spot it at a glance.
 function setNutritionDisplay(values, partial) {
-  var fields = ['calories', 'protein', 'fiber', 'sugar', 'sodium'];
+  var fields = ['calories', 'protein', 'carbs', 'fat', 'fiber', 'sugar', 'sodium'];
   fields.forEach(function(f) {
     var el = document.getElementById('n-' + f);
     if (!el) return;
