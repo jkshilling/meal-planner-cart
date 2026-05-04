@@ -207,20 +207,32 @@ a:hover { color: var(--burgundy-ink); text-decoration: underline; }
 .recipe-notes-label { display: flex; flex-direction: column; }
 .recipe-notes-textarea { flex: 1; min-height: 220px; resize: vertical; }
 
-/* Recipe-edit nutrition panel. Uses a grid (not flex-wrap) so the seven
-   nutrient cells align in clean columns and don't orphan Sugar / Sodium
-   on a partially-filled second row with weird gaps. auto-fit + minmax
-   gives ~5-7 columns wide, 4 columns tablet, 2 columns mobile. */
+/* Recipe-edit nutrition panel. Seven nutrient cells (Calories, Protein,
+   Carbs, Fat, Fiber, Sugar, Sodium) laid out as a grid with content-sized
+   columns so they pack tightly with consistent gaps. Two earlier attempts
+   (flex-wrap; auto-fit minmax) both produced orphaned cells on a partial
+   second row — explicit column count avoids that.
+
+   Wide (default): all 7 in one row.
+   Tablet (<=1100px): 4 columns × 2 rows (last row has 3 cells, packed left).
+   Mobile (<=600px): 2 columns × 4 rows. */
 .nutrition-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  column-gap: 24px;
-  row-gap: 8px;
+  grid-template-columns: repeat(7, max-content);
+  column-gap: 28px;
+  row-gap: 6px;
+  align-items: baseline;
   margin-bottom: 4px;
 }
 .nutrition-grid > span {
   white-space: nowrap;
   font-size: 14px;
+}
+@media (max-width: 1100px) {
+  .nutrition-grid { grid-template-columns: repeat(4, max-content); }
+}
+@media (max-width: 600px) {
+  .nutrition-grid { grid-template-columns: repeat(2, max-content); }
 }
 
 /* Favorite checkbox sits in the same .row as the Prep / Servings / Cost
