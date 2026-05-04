@@ -169,10 +169,16 @@ router.post('/signup', signupLimiter, async (req, res) => {
 
   // Provision a household for the new user. If the database has orphaned
   // pre-auth data and this user's email matches BOOTSTRAP_OWNER_EMAIL (or
-  // the env var is unset), claim it. Otherwise create a fresh household.
+  // the env var is unset), claim it. Otherwise create a fresh household
+  // and seed their recipe library by deep-copying every Spoonacular recipe
+  // already in the bootstrap owner's library. Each user owns their own
+  // copies after this — edits, favorites, deletes are isolated. The
+  // bootstrap owner falls into the claim branch and isn't seeded from
+  // themselves.
   const claimed = household.claimOrphanedHouseholds(user.id, user.email);
   if (claimed === 0) {
     household.createHouseholdForUser(user.id);
+    household.seedRecipesForUser(user.id);
   }
 
   req.session.regenerate((err) => {

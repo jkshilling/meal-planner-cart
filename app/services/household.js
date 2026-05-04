@@ -77,6 +77,66 @@ function createHouseholdForUser(userId) {
   return info.lastInsertRowid;
 }
 
+// Seed a new user's recipe library by deep-copying the bootstrap owner's
+// Spoonacular-imported recipes (those with source_id set). Hand-entered
+// recipes (source_id NULL) are private to the owner and NOT copied.
+//
+// Each new user gets their own row + their own recipe_ingredients per
+// recipe, so subsequent edits / favorites / deletes are isolated. The
+// `favorite` flag intentionally resets to 0 — favorites are personal
+// taste, not inherited.
+//
+// Returns the number of recipes copied. No-ops (returns 0) when:
+//   - BOOTSTRAP_OWNER_EMAIL is unset
+//   - the owner doesn't exist yet (e.g. user 2 signed up before user 1)
+//   - the owner is the same as the new user (the bootstrap owner doesn't
+//     copy from themselves)
+//   - the owner has no source_id-bearing recipes yet
+function seedRecipesForUser(userId) {
+  const ownerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL || '').toLowerCase().trim();
+  if (!ownerEmail) return 0;
+  const owner = db.prepare('SELECT id FROM users WHERE email = ?').get(ownerEmail);
+  if (!owner || owner.id === userId) return 0;
+
+  const sources = db.prepare(`
+    SELECT id, name, meal_type, cuisine, kid_friendly, prep_time, servings,
+           est_cost, calories, protein, fiber, sugar, sodium, notes, source_id
+      FROM recipes
+     WHERE user_id = ? AND source_id IS NOT NULL
+  `).all(owner.id);
+  if (!sources.length) return 0;
+
+  const insertRecipe = db.prepare(`
+    INSERT INTO recipes
+      (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost,
+       calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+  `);
+  const selectIngs = db.prepare(
+    'SELECT name, quantity, unit FROM recipe_ingredients WHERE recipe_id = ?'
+  );
+  const insertIng = db.prepare(
+    'INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)'
+  );
+
+  const tx = db.transaction(() => {
+    for (const r of sources) {
+      const info = insertRecipe.run(
+        r.name, r.meal_type, r.cuisine, r.kid_friendly,
+        r.prep_time, r.servings, r.est_cost,
+        r.calories, r.protein, r.fiber, r.sugar, r.sodium,
+        r.notes, userId, r.source_id
+      );
+      const ings = selectIngs.all(r.id);
+      for (const ing of ings) {
+        insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
+      }
+    }
+  });
+  tx();
+  return sources.length;
+}
+
 // Find the active household profile for a logged-in user. Returns null
 // if the user has none yet (shouldn't happen post-signup, but defensive).
 function profileForUser(userId) {
@@ -88,5 +148,6 @@ function profileForUser(userId) {
 module.exports = {
   claimOrphanedHouseholds,
   createHouseholdForUser,
+  seedRecipesForUser,
   profileForUser
 };
