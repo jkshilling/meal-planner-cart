@@ -129,6 +129,43 @@ router.post('/grocery/products/:id/favorite', requireAuth, (req, res) => {
 //
 // All lookups are scoped to req.tokenUser.id so two users querying the same
 // ingredient see their own histories.
+// Wipe the calling user's grocery data: their searches, ingredient
+// mappings, favorites, and any walmart_products rows that nobody else has
+// touched. The walmart_products table is shared across users (a SKU is a
+// SKU), so we only delete rows that have no remaining references from
+// OTHER users' searches/mappings/favorites — otherwise we'd corrupt their
+// catalogs.
+//
+// Bearer-token authed; bound to req.tokenUser.id so one user's reset
+// can't touch another user's data.
+router.options('/api/grocery/reset', extensionCors);
+router.post('/api/grocery/reset', extensionCors, requireTokenAndResolveUser, (req, res) => {
+  const uid = req.tokenUser.id;
+  const before = {
+    searches:  db.prepare('SELECT COUNT(*) AS n FROM grocery_searches WHERE user_id = ?').get(uid).n,
+    mappings:  db.prepare('SELECT COUNT(*) AS n FROM ingredient_products WHERE user_id = ?').get(uid).n,
+    favorites: db.prepare('SELECT COUNT(*) AS n FROM user_favorites WHERE user_id = ?').get(uid).n
+  };
+
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM grocery_searches WHERE user_id = ?').run(uid);
+    db.prepare('DELETE FROM ingredient_products WHERE user_id = ?').run(uid);
+    db.prepare('DELETE FROM user_favorites WHERE user_id = ?').run(uid);
+    // Orphan-cleanup: products with no remaining reference from any
+    // user's searches/mappings/favorites. price_history rows go via the
+    // ON DELETE CASCADE foreign key.
+    db.prepare(`
+      DELETE FROM walmart_products
+       WHERE id NOT IN (SELECT picked_product_id FROM grocery_searches WHERE picked_product_id IS NOT NULL)
+         AND id NOT IN (SELECT product_id FROM ingredient_products)
+         AND id NOT IN (SELECT walmart_product_id FROM user_favorites)
+    `).run();
+  });
+  tx();
+
+  res.json({ ok: true, deleted: before });
+});
+
 router.options('/api/grocery/price-estimate', extensionCors);
 router.post('/api/grocery/price-estimate', extensionCors, requireTokenAndResolveUser, express.json({ limit: '128kb' }), (req, res) => {
   const uid = req.tokenUser.id;

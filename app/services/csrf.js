@@ -35,7 +35,8 @@ const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const BEARER_EXEMPT = new Set([
   '/api/grocery-events',
   '/api/grocery/favorites',
-  '/api/grocery/price-estimate'
+  '/api/grocery/price-estimate',
+  '/api/grocery/reset'
 ]);
 
 function verify(req, res, next) {
