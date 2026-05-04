@@ -24,10 +24,18 @@ router.get('/settings', requireAuth, (req, res) => {
   const recipes = db.prepare(
     'SELECT id, name, meal_type FROM recipes WHERE user_id = ? ORDER BY meal_type, name'
   ).all(uid);
+  // Counts for the "Recipe library" card. Total = everything the user owns;
+  // fromMaster = the subset that came from a Spoonacular import (source_id
+  // set). Difference = hand-entered.
+  const libraryCounts = {
+    total:       db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE user_id = ?').get(uid).n,
+    fromMaster:  db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE user_id = ? AND source_id IS NOT NULL').get(uid).n
+  };
   res.render('settings', {
     title: 'Settings',
     profile,
     recipes,
+    libraryCounts,
     saved: req.query.saved === '1',
     groceryToken: groceryToken.ensureForUser(uid),
     tokenRotated: req.query.tokenRotated === '1',
@@ -40,6 +48,22 @@ router.get('/settings', requireAuth, (req, res) => {
 router.post('/settings/grocery-token/rotate', requireAuth, (req, res) => {
   groceryToken.rotateForUser(userIdOf(req));
   res.redirect('/settings?tokenRotated=1#grocery-extension');
+});
+
+// Re-sync the user's recipe library from the bootstrap owner's master
+// library. Purely additive: copies any source_id-bearing recipes the user
+// doesn't already have. See services/household.seedRecipesForUser for the
+// full contract — in short, edits and hand-entered recipes are never
+// touched. Sets a flash so the redirect can show how many were imported.
+router.post('/settings/recipes/resync', requireAuth, (req, res) => {
+  const added = household.seedRecipesForUser(userIdOf(req));
+  req.session.flash = {
+    type: 'success',
+    message: added > 0
+      ? `Imported ${added} new recipe${added === 1 ? '' : 's'} from the master library.`
+      : "You're already up to date — nothing new in the master library."
+  };
+  res.redirect('/settings#recipe-library');
 });
 
 // Mint a new single-use invite code. Optional label so the inviter can

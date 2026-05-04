@@ -77,33 +77,55 @@ function createHouseholdForUser(userId) {
   return info.lastInsertRowid;
 }
 
-// Seed a new user's recipe library by deep-copying the bootstrap owner's
-// Spoonacular-imported recipes (those with source_id set). Hand-entered
-// recipes (source_id NULL) are private to the owner and NOT copied.
+// Sync the bootstrap owner's Spoonacular-imported recipes (those with
+// source_id set) into a target user's library. Used both for the initial
+// seed at signup AND the explicit "re-sync from master library" button on
+// settings — same code path, idempotent.
 //
-// Each new user gets their own row + their own recipe_ingredients per
-// recipe, so subsequent edits / favorites / deletes are isolated. The
-// `favorite` flag intentionally resets to 0 — favorites are personal
-// taste, not inherited.
+// What it does:
+//   - For each recipe in the owner's library where source_id IS NOT NULL,
+//     deep-copy it (recipe row + all recipe_ingredients) into the target
+//     user's library, but ONLY if the target doesn't already have a
+//     recipe with that source_id.
+//   - Skips entirely (zero work) for recipes the user already has, so
+//     re-running is safe and produces no duplicates.
+//   - The `favorite` flag is always reset to 0 on the copy. Favorites
+//     are personal taste; inheriting the owner's favorites would be wrong.
 //
-// Returns the number of recipes copied. No-ops (returns 0) when:
+// What it does NOT do:
+//   - Touch hand-entered recipes (source_id NULL is invisible to this
+//     entire query — both the owner's and the user's stay completely
+//     untouched).
+//   - Modify the user's existing copies of recipes (edits, customized
+//     ingredients, custom calories — all preserved).
+//   - Delete anything, ever.
+//
+// Returns the number of recipes newly added in this sync. No-ops (returns 0)
+// when:
 //   - BOOTSTRAP_OWNER_EMAIL is unset
-//   - the owner doesn't exist yet (e.g. user 2 signed up before user 1)
-//   - the owner is the same as the new user (the bootstrap owner doesn't
-//     copy from themselves)
-//   - the owner has no source_id-bearing recipes yet
+//   - the owner doesn't exist yet
+//   - the owner is the same as the target user
+//   - the owner has no source_id-bearing recipes the user is missing
 function seedRecipesForUser(userId) {
   const ownerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL || '').toLowerCase().trim();
   if (!ownerEmail) return 0;
   const owner = db.prepare('SELECT id FROM users WHERE email = ?').get(ownerEmail);
   if (!owner || owner.id === userId) return 0;
 
+  // Recipes the user already has, by source_id. We dedup against this so
+  // re-running the sync (or running it after a partial signup) is safe.
+  const have = new Set(
+    db.prepare(
+      'SELECT source_id FROM recipes WHERE user_id = ? AND source_id IS NOT NULL'
+    ).all(userId).map(r => String(r.source_id))
+  );
+
   const sources = db.prepare(`
     SELECT id, name, meal_type, cuisine, kid_friendly, prep_time, servings,
            est_cost, calories, protein, fiber, sugar, sodium, notes, source_id
       FROM recipes
      WHERE user_id = ? AND source_id IS NOT NULL
-  `).all(owner.id);
+  `).all(owner.id).filter(r => !have.has(String(r.source_id)));
   if (!sources.length) return 0;
 
   const insertRecipe = db.prepare(`

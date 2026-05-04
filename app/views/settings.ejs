@@ -129,6 +129,30 @@
   <button class="btn primary" type="submit">Save settings</button>
 </form>
 
+<div class="card" id="recipe-library">
+  <h2>Recipe library</h2>
+  <p class="muted">
+    Your library: <strong><%= libraryCounts.total %></strong> recipe<%= libraryCounts.total === 1 ? '' : 's' %>
+    (<strong><%= libraryCounts.fromMaster %></strong> from the master library,
+    <strong><%= libraryCounts.total - libraryCounts.fromMaster %></strong> hand-entered).
+  </p>
+  <p class="muted">
+    The "master library" is the bootstrap owner's collection of Spoonacular-imported
+    recipes — everything that comes in via the nightly Spoonacular pull. New users
+    get a snapshot of it at signup; clicking below pulls in any recipes that have
+    been added to the master library since you signed up. <strong>Re-sync is
+    purely additive</strong>: your existing recipes (including ones you've edited)
+    won't be touched, and your hand-entered recipes are completely invisible to
+    this. Note: if you previously deleted a master-library recipe, re-sync will
+    add it back — just delete it again if you don't want it.
+  </p>
+  <form method="post" action="/settings/recipes/resync" style="display:inline">
+    <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+    <button class="btn" type="submit">Re-sync from master library</button>
+  </form>
+  <a class="btn" href="/recipes">Manage recipes</a>
+</div>
+
 <div class="card" id="grocery-extension">
   <h2>Grocery extension API token</h2>
   <p class="muted">
