@@ -228,4 +228,99 @@ function isEnabled() {
   return !!apiKey();
 }
 
-module.exports = { suggestCanonical, verifyMatch, isEnabled };
+// LLM ingredient-line structurer. NYT and other recipe sites publish
+// ingredients as freeform strings ("3 tablespoons unsalted butter",
+// "1/2 cup finely chopped shallot (about 1 large shallot)"). Our DB
+// expects {name, quantity, unit} triples. Parsing this with regex is
+// fragile — fractions, parentheticals, multi-unit phrases ("2 cups
+// minus 2 tablespoons"), and "to taste" quantities are all common.
+//
+// Output shape (always returns valid JSON or null):
+//   { name: "shallot", quantity: 0.5, unit: "cup" }
+//   { name: "salt",    quantity: 1,   unit: "to taste" }   ← for "Kosher salt and pepper"
+//   null                                                    ← only on outright failure
+//
+// Rules baked into the prompt:
+//   - Output ONLY the JSON object, no commentary.
+//   - Pick the canonical food name (drop "finely chopped", "(about 1
+//     large)", brand names, "to taste").
+//   - Quantity always numeric. Convert fractions to decimals.
+//   - Unit: short form preferred (cup, tbsp, tsp, oz, lb, g, ml, each,
+//     slice, clove). For ingredients without a measurable amount
+//     ("salt and pepper", "(optional)", "for serving"), use unit
+//     "to taste" and quantity 1.
+//   - For multi-ingredient lines ("salt and pepper"), output the FIRST
+//     food only — caller can split downstream if needed.
+const PARSE_INGREDIENT_PROMPT = [
+  'You convert recipe ingredient lines into structured JSON. Each line has',
+  'a quantity, an optional unit, and a food name with possible modifiers.',
+  '',
+  'Rules:',
+  '- Output ONLY a single JSON object with keys "name", "quantity", "unit".',
+  '  No prose, no markdown fences, no array.',
+  '- "name": canonical food name. Drop prep verbs (chopped, minced, grated,',
+  '  diced), parenthetical alternatives, brand names. Lowercase.',
+  '- "quantity": numeric. Convert fractions to decimals (1/2 → 0.5,',
+  '  1 1/4 → 1.25). Ignore parenthetical alternatives (use the primary).',
+  '- "unit": short form ("cup", "tbsp", "tsp", "oz", "lb", "g", "ml",',
+  '  "each", "slice", "clove", "pinch"). For ingredients without a',
+  '  measurable amount ("salt and pepper", "for serving", "(optional)",',
+  '  "to taste"), use unit "to taste" with quantity 1.',
+  '- For lines describing multiple foods ("salt and pepper", "olive oil',
+  '  and butter"), output the FIRST food only.',
+  '',
+  'Examples:',
+  '  "3 tablespoons unsalted butter" → {"name":"butter","quantity":3,"unit":"tbsp"}',
+  '  "1/2 cup finely chopped shallot (about 1 large shallot)" → {"name":"shallot","quantity":0.5,"unit":"cup"}',
+  '  "1 1/4 pounds bittersweet chocolate disks" → {"name":"chocolate","quantity":1.25,"unit":"lb"}',
+  '  "2 cups low-sodium chicken broth" → {"name":"chicken broth","quantity":2,"unit":"cup"}',
+  '  "Kosher salt and black pepper" → {"name":"salt","quantity":1,"unit":"to taste"}',
+  '  "Store-bought fried shallots (optional)" → {"name":"fried shallots","quantity":1,"unit":"to taste"}',
+  '  "2 large eggs" → {"name":"eggs","quantity":2,"unit":"each"}',
+  '  "1 lemon, juiced" → {"name":"lemon","quantity":1,"unit":"each"}',
+  '  "1 (14-ounce) can diced tomatoes" → {"name":"tomatoes","quantity":14,"unit":"oz"}'
+].join('\n');
+
+async function parseIngredient(line) {
+  const key = apiKey();
+  if (!key) return null;
+  const text = (line || '').trim();
+  if (!text) return null;
+  try {
+    const res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`
+      },
+      body: JSON.stringify({
+        model: modelName(),
+        temperature: 0,
+        max_tokens: 80,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: PARSE_INGREDIENT_PROMPT },
+          { role: 'user',   content: text }
+        ]
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (typeof raw !== 'string') return null;
+    let obj;
+    try { obj = JSON.parse(raw); } catch (e) { return null; }
+    if (!obj || typeof obj !== 'object') return null;
+    // Sanity-check the shape; coerce gracefully.
+    const name = String(obj.name || '').toLowerCase().trim().slice(0, 80);
+    let qty = Number(obj.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) qty = 1;
+    const unit = String(obj.unit || 'each').toLowerCase().trim().slice(0, 20) || 'each';
+    if (!name) return null;
+    return { name, quantity: +qty.toFixed(3), unit };
+  } catch (e) {
+    return null;
+  }
+}
+
+module.exports = { suggestCanonical, verifyMatch, parseIngredient, isEnabled };

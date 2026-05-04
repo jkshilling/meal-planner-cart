@@ -1,0 +1,141 @@
+/* Cream + ink theme matching the meal-planner-cart app. */
+:root {
+  --cream: #faf7f2;
+  --ink: #2a2a28;
+  --ink-soft: #6f6c66;
+  --ink-muted: #9b978f;
+  --line: #e6e0d2;
+  --sage: #7e9b6f;
+  --burgundy: #7c2d3c;
+  --error: #b00020;
+  --success: #2e7d32;
+}
+* { box-sizing: border-box; }
+html, body {
+  font-family: -apple-system, system-ui, "Segoe UI", sans-serif;
+  background: var(--cream);
+  color: var(--ink);
+  font-size: 14px;
+  margin: 0;
+}
+body.popup {
+  width: 320px;
+  padding: 14px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+h1 {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--ink);
+}
+.settings-link {
+  text-decoration: none;
+  color: var(--ink-soft);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.settings-link:hover { color: var(--ink); }
+
+.muted { color: var(--ink-soft); font-size: 13px; }
+
+.recipe-name {
+  font-weight: 600;
+  font-size: 15px;
+  line-height: 1.3;
+  margin-bottom: 4px;
+  color: var(--ink);
+}
+.recipe-meta {
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+button.primary {
+  display: block;
+  width: 100%;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 600;
+  background: var(--sage);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+}
+button.primary:hover:not(:disabled) { filter: brightness(0.95); }
+button.primary:disabled { opacity: 0.6; cursor: default; }
+
+.success {
+  background: rgba(46, 125, 50, 0.08);
+  border: 1px solid rgba(46, 125, 50, 0.3);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--success);
+}
+.success #success-msg { font-weight: 600; margin-bottom: 6px; }
+.success a {
+  color: var(--success);
+  text-decoration: none;
+  font-size: 13px;
+}
+.success a:hover { text-decoration: underline; }
+
+.error {
+  background: rgba(176, 0, 32, 0.06);
+  border: 1px solid rgba(176, 0, 32, 0.25);
+  border-radius: 6px;
+  padding: 10px 12px;
+  color: var(--error);
+  font-size: 13px;
+}
+
+/* Options page styling */
+body.options {
+  width: auto;
+  max-width: 520px;
+  padding: 24px;
+}
+body.options h1 { font-size: 18px; margin-bottom: 8px; }
+body.options p { color: var(--ink-soft); line-height: 1.5; }
+body.options input[type="text"] {
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font: inherit;
+  background: white;
+  margin-bottom: 12px;
+}
+body.options label {
+  display: block;
+  font-weight: 600;
+  font-size: 13px;
+  margin-top: 14px;
+  margin-bottom: 4px;
+}
+body.options button {
+  padding: 9px 18px;
+  background: var(--sage);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+}
+body.options #msg {
+  margin-top: 10px;
+  color: var(--success);
+  font-size: 13px;
+  min-height: 18px;
+}
+body.options a { color: var(--burgundy); }

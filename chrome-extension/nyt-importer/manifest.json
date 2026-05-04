@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "NYT Cooking → Meal Planner",
+  "version": "0.1.0",
+  "description": "One-click import recipes from NYT Cooking into your Meal Planner library.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://cooking.nytimes.com/*",
+    "https://meals.alaskatargeting.com/*",
+    "http://localhost:3000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Import this recipe to Meal Planner"
+  },
+  "options_page": "options.html"
+}

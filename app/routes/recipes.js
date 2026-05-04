@@ -3,8 +3,11 @@ const db = require('../db');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
 const household = require('../services/household');
+const nytCooking = require('../services/nyt_cooking');
 const { loadProfile, dinersFor, attachNutrition } = require('../services/planner');
 const { requireAuth, userIdOf } = require('../services/auth');
+const { requireTokenAndResolveUser } = require('../services/grocery_token');
+const { extensionCors } = require('../middleware/extension_cors');
 
 const router = express.Router();
 
@@ -317,6 +320,80 @@ router.post('/recipes/:id/exclude', requireAuth, requireOwner, (req, res) => {
     };
   }
   res.redirect('/recipes');
+});
+
+// =====================================================================
+// Chrome-extension import endpoint for NYT Cooking recipes.
+//
+// Flow:
+//   1. User browses cooking.nytimes.com (logged-in or not — JSON-LD is
+//      identical either way).
+//   2. Extension popup reads the page's <script type="application/ld+json">
+//      block, finds the @type=Recipe entry.
+//   3. Extension POSTs { url, json_ld } here with a bearer token.
+//   4. We map JSON-LD → internal recipe shape, LLM-parse each ingredient,
+//      and use the existing insertRecipesAndIngredients pipeline so the
+//      USDA cache warmer fires + canonicalize-on-write applies.
+//
+// Auth: bearer token (same /settings#grocery-extension token the
+// food-buyer extension uses). CORS allows any chrome-extension:// origin
+// (the bearer is what authorizes; pinning the extension ID would just be
+// maintenance burden). CSRF-exempt — listed in services/csrf.js
+// BEARER_EXEMPT.
+//
+// Idempotent: dedupes on source_id="nyt:<recipe-id>" so re-importing the
+// same URL is a no-op.
+router.options('/api/recipes/import-nyt', extensionCors);
+router.post('/api/recipes/import-nyt', extensionCors, requireTokenAndResolveUser, express.json({ limit: '256kb' }), async (req, res) => {
+  const uid = req.tokenUser.id;
+  const body = req.body || {};
+  const url = String(body.url || '').trim();
+  const jsonLd = body.json_ld;
+  if (!jsonLd || jsonLd['@type'] !== 'Recipe') {
+    return res.json({ ok: false, reason: 'no Recipe JSON-LD in payload' });
+  }
+
+  try {
+    const recipe = await nytCooking.nytLdToRecipe(jsonLd, url);
+    if (!recipe) return res.json({ ok: false, reason: 'failed to map recipe' });
+    if (!recipe.ingredients || !recipe.ingredients.length) {
+      return res.json({ ok: false, reason: 'recipe has no ingredients' });
+    }
+
+    // Dedup against the user's library by source_id.
+    if (recipe.source_id) {
+      const existing = db.prepare(
+        'SELECT id, name FROM recipes WHERE user_id = ? AND source_id = ?'
+      ).get(uid, recipe.source_id);
+      if (existing) {
+        return res.json({
+          ok: true, duplicate: true,
+          recipe_id: existing.id, name: existing.name,
+          message: `Already in your library as "${existing.name}".`
+        });
+      }
+    }
+
+    // Use the canonical insert pipeline. It applies canonicalize-on-write
+    // to ingredient names and fires off a USDA cache warm in the
+    // background, so nutrition will be populated by the next render.
+    household.insertRecipesAndIngredients(uid, [recipe], r => r.ingredients);
+    const inserted = db.prepare(
+      'SELECT id FROM recipes WHERE user_id = ? AND source_id = ? ORDER BY id DESC LIMIT 1'
+    ).get(uid, recipe.source_id);
+
+    return res.json({
+      ok: true, duplicate: false,
+      recipe_id: inserted ? inserted.id : null,
+      name: recipe.name,
+      meal_type: recipe.meal_type,
+      ingredient_count: recipe.ingredients.length,
+      message: `Imported "${recipe.name}" (${recipe.meal_type}, ${recipe.ingredients.length} ingredients).`
+    });
+  } catch (e) {
+    console.error('[import-nyt]', e);
+    return res.status(500).json({ ok: false, reason: e.message || 'server error' });
+  }
 });
 
 module.exports = router;

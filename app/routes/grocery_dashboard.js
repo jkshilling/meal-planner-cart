@@ -11,23 +11,9 @@ const express = require('express');
 const db = require('../db');
 const { requireTokenAndResolveUser } = require('../services/grocery_token');
 const { requireAuth, userIdOf } = require('../services/auth');
+const { extensionCors } = require('../middleware/extension_cors');
 
 const router = express.Router();
-
-// CORS for the food-buyer Chrome extension. Only chrome-extension:// origins
-// can read responses. Mirrors the policy on /api/grocery-events.
-function extensionCors(req, res, next) {
-  const origin = req.get('Origin') || '';
-  if (origin.startsWith('chrome-extension://')) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Headers', 'Authorization, Content-Type');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-    res.setHeader('Access-Control-Max-Age', '600');
-  }
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-}
 
 router.get('/grocery', requireAuth, (req, res) => {
   const uid = userIdOf(req);

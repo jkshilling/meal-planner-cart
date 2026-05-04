@@ -36,7 +36,8 @@ const BEARER_EXEMPT = new Set([
   '/api/grocery-events',
   '/api/grocery/favorites',
   '/api/grocery/price-estimate',
-  '/api/grocery/reset'
+  '/api/grocery/reset',
+  '/api/recipes/import-nyt'
 ]);
 
 function verify(req, res, next) {
