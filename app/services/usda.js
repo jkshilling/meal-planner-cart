@@ -121,6 +121,24 @@ function descContainsAllWords(desc, query) {
   return words.every(w => d.includes(w));
 }
 
+// Some FDC entries — especially newer Foundation Foods — return no Energy
+// nutrient at all in the foods/search response (the data lives on a
+// separate /food/{fdcId} endpoint). Without Energy in KCAL, extractNutrients
+// produces all-NULL values, and the row caches as "matched" but contributes
+// nothing to recipe nutrition. Filter those out before the verify walk so
+// we never accept a calorie-less entry as the match. Example: "Oil, olive,
+// extra light" (Foundation) lacks Energy in search results; "Oil, olive,
+// salad or cooking" (SR Legacy) has KCAL 884 — we want the latter.
+function hasUsableEnergy(food) {
+  for (const n of (food.foodNutrients || [])) {
+    if ((n.nutrientName === 'Energy' || n.nutrientName === 'Energy (Atwater General Factors)')
+        && (n.unitName || '').toUpperCase() === 'KCAL') {
+      return true;
+    }
+  }
+  return false;
+}
+
 // Map FDC's nutrient names + required unit → our schema fields. FDC returns
 // energy in BOTH kcal and kJ; we filter to kcal so calories aren't 4x reality.
 const NUTRIENT_MAP = {
@@ -271,10 +289,12 @@ async function fdcLookup(query) {
   //      better to record no match than to use restaurant nutrition for
   //      an ingredient.
   // Filter only — do NOT re-sort. USDA's order is the source of truth for
-  // the verify walk.
+  // the verify walk. Candidates without Energy in KCAL are dropped because
+  // they'd cache as nutrient-less rows.
   const candidates = (data.foods || [])
     .filter(f => descContainsAllWords(f.description, query))
-    .filter(f => !looksBranded(f.description || ''));
+    .filter(f => !looksBranded(f.description || ''))
+    .filter(f => hasUsableEnergy(f));
   return { rateLimited: false, candidates };
 }
 
