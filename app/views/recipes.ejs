@@ -595,11 +595,29 @@ function scheduleNutritionRefresh() {
   });
   refreshHeaderIndicators(headers);
 
+  // Persist the active meal-type filter across reloads. Without this,
+  // any action that round-trips through the server (exclude, delete,
+  // favorite) redirects back to /recipes and resets the user to the
+  // "All" tab — losing their filter context. localStorage so it also
+  // survives navigating away and back.
+  var FILTER_STORAGE_KEY = 'mp_recipes_filter';
+  function setActiveTab(meal, persist) {
+    var match = Array.prototype.find.call(tabs, function(t) { return t.dataset.meal === meal; });
+    if (!match) return;
+    tabs.forEach(function(x) { x.classList.remove('active'); });
+    match.classList.add('active');
+    activeMeal = meal;
+    if (persist) { try { localStorage.setItem(FILTER_STORAGE_KEY, meal); } catch (e) {} }
+  }
+  // Restore on load. Default 'all' if nothing saved or a tab no longer exists.
+  try {
+    var saved = localStorage.getItem(FILTER_STORAGE_KEY);
+    if (saved && saved !== 'all') setActiveTab(saved, false);
+  } catch (e) {}
+
   tabs.forEach(function(t) {
     t.addEventListener('click', function() {
-      tabs.forEach(function(x) { x.classList.remove('active'); });
-      t.classList.add('active');
-      activeMeal = t.dataset.meal;
+      setActiveTab(t.dataset.meal, true);
       apply();
     });
   });
