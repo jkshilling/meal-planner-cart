@@ -51,12 +51,26 @@ const DEFAULT_MAP = {
   'bread':       'side'
 };
 
+// Bias results toward "healthy" without being draconian. Combines a
+// minHealthScore floor (Spoonacular's own composite — protein density,
+// fiber, fat balance) with sodium / saturated-fat / sugar caps so the
+// truly junky items get filtered out. Numbers chosen as gentle gates
+// that still let through plenty of crowd-popular meals.
+const HEALTHY_FILTERS = {
+  minHealthScore: 35,
+  maxSodium: 1500,        // mg per serving
+  maxSaturatedFat: 15,    // g per serving
+  maxSugar: 25            // g per serving
+};
+
 function parseArgs(argv) {
-  const args = { type: null, count: 10, sort: 'popularity', as: null };
+  const args = { type: null, count: 10, sort: 'popularity', as: null, healthy: false };
   const positional = [];
   for (let i = 2; i < argv.length; i++) {
-    if (argv[i] === '--as') { args.as = argv[++i]; continue; }
-    positional.push(argv[i]);
+    const a = argv[i];
+    if (a === '--as') { args.as = argv[++i]; continue; }
+    if (a === '--healthy') { args.healthy = true; continue; }
+    positional.push(a);
   }
   if (positional[0]) args.type = positional[0];
   if (positional[1]) args.count = parseInt(positional[1], 10) || 10;
@@ -90,7 +104,11 @@ async function main() {
     process.exit(1);
   }
 
+  const filters = args.healthy ? HEALTHY_FILTERS : {};
   console.log(`Pulling top ${args.count} ${args.type} (sort=${args.sort}) → meal_type=${targetMealType}`);
+  if (args.healthy) {
+    console.log(`Healthy mode: minHealthScore=${HEALTHY_FILTERS.minHealthScore}, maxSodium=${HEALTHY_FILTERS.maxSodium}mg, maxSatFat=${HEALTHY_FILTERS.maxSaturatedFat}g, maxSugar=${HEALTHY_FILTERS.maxSugar}g`);
+  }
   console.log(`Owner: ${owner.email} (user ${owner.id})\n`);
 
   // Spoonacular caps per-call at 100. For larger pulls, paginate via offset.
@@ -102,7 +120,8 @@ async function main() {
       type: args.type,
       limit: wanted,
       sort: args.sort,
-      offset: off
+      offset: off,
+      filters
     });
     all.push(...batch);
     if (batch.length < wanted) break;  // Spoonacular ran out of results

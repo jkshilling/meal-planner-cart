@@ -110,7 +110,7 @@ function spoonacularToRecipe(r) {
 // where you want variety, not specific themes (sides, snacks, salads).
 async function searchRecipes(opts) {
   if (!isEnabled()) throw new Error('SPOONACULAR_API_KEY not set');
-  const { query, type, limit = 8, offset = 0, sort } = opts || {};
+  const { query, type, limit = 8, offset = 0, sort, filters = {} } = opts || {};
   if (!query && !type) throw new Error('searchRecipes: query or type required');
   const params = new URLSearchParams({
     number: String(limit),
@@ -124,6 +124,13 @@ async function searchRecipes(opts) {
   if (type)  params.set('type', type);
   if (offset) params.set('offset', String(offset));
   if (sort) params.set('sort', sort);
+  // Forward any nutrition / time filters to Spoonacular as-is. Their
+  // complexSearch supports min/max for every macro plus maxReadyTime,
+  // minHealthScore, intolerances, diet, includeIngredients, etc. The
+  // caller knows the schema; this layer just passes through.
+  for (const [k, v] of Object.entries(filters)) {
+    if (v != null && v !== '') params.set(k, String(v));
+  }
   const url = `${SP_BASE}/recipes/complexSearch?${params.toString()}`;
   const res = await fetch(url);
   if (!res.ok) {
