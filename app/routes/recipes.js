@@ -3,6 +3,7 @@ const db = require('../db');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
 const household = require('../services/household');
+const { loadProfile, dinersFor } = require('../services/planner');
 const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
@@ -89,6 +90,24 @@ router.get('/recipes', requireAuth, (req, res) => {
     side: recipes.filter(r => r.meal_type === 'side').length,
     favorite: recipes.filter(r => r.favorite).length
   };
+
+  // Per-recipe "adjusted_serves" — how many servings of this recipe will
+  // actually be cooked given the current household's per-meal-type behavior.
+  // For dinner recipes: dinersFor(profile, 'dinner'). For sides: null,
+  // because sides inherit the diner count of whichever main slot they're
+  // paired with at planning time. The view uses adjusted_serves +
+  // r.servings to render a multiplier ("0.25×", "1.5×") so the user knows
+  // how much of each recipe will actually land in their shopping list.
+  const profileRow = household.profileForUser(uid);
+  const profile = profileRow ? loadProfile(profileRow.id) : null;
+  for (const r of recipes) {
+    if (!profile || r.meal_type === 'side') {
+      r.adjusted_serves = null;
+    } else {
+      r.adjusted_serves = dinersFor(profile, r.meal_type);
+    }
+  }
+
   res.render('recipes', { title: 'Recipes', recipes, editing, counts });
 });
 

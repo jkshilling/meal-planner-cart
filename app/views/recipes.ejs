@@ -1,6 +1,10 @@
 <%- include('partials/header') %>
 <div class="recipes-header">
-  <h1>Recipes <span class="count-badge"><%= counts.total %></span></h1>
+  <h1>
+    Recipes
+    <span class="count-badge"><%= counts.total %></span>
+    <span class="muted tiny" id="visible-count" style="margin-left: 6px; font-weight: normal;"></span>
+  </h1>
   <div>
     <button class="btn" type="button" onclick="toggleOnline()">Search online</button>
     <button class="btn primary" type="button" onclick="toggleForm()"><%= editing ? 'Close editor' : '+ New recipe' %></button>
@@ -92,20 +96,7 @@
   </div>
   <div class="control-row">
     <input id="search" type="text" placeholder="Search name, cuisine, ingredient…" />
-    <label class="inline"><input id="kid-only" type="checkbox" /> kid-friendly only</label>
-    <label class="inline sort-label">Sort by
-      <select id="sort">
-        <option value="name">name</option>
-        <option value="prep_time">prep ↑</option>
-        <option value="-prep_time">prep ↓</option>
-        <option value="est_cost">cost ↑</option>
-        <option value="-est_cost">cost ↓</option>
-        <option value="calories">calories ↑</option>
-        <option value="-calories">calories ↓</option>
-        <option value="cuisine">cuisine</option>
-      </select>
-    </label>
-    <span class="muted tiny" id="visible-count"></span>
+    <span class="muted tiny" style="align-self: center;">Click any column header to sort.</span>
   </div>
 </section>
 
@@ -115,26 +106,49 @@
     <thead>
       <tr>
         <th style="width:24px"></th>
-        <th>Name</th>
-        <th>Meal</th>
-        <th>Cuisine</th>
-        <th>Prep</th>
-        <th>Serv</th>
-        <th>Cost</th>
-        <th>Cal</th>
-        <th>Tags</th>
+        <th class="sortable" data-sort-key="name"      data-sort-numeric="0">Name</th>
+        <th class="sortable" data-sort-key="meal"      data-sort-numeric="0">Meal</th>
+        <th class="sortable" data-sort-key="cuisine"   data-sort-numeric="0">Cuisine</th>
+        <th class="sortable" data-sort-key="prep-time" data-sort-numeric="1">Prep</th>
+        <th class="sortable" data-sort-key="servings"  data-sort-numeric="1">Serves</th>
+        <th class="sortable" data-sort-key="adjusted-serves" data-sort-numeric="1"
+            title="How many servings of the recipe your household actually cooks, given each member's meal-behavior settings. Hover over a row's cell for the math.">For you</th>
+        <th class="sortable" data-sort-key="est-cost"  data-sort-numeric="1">Cost</th>
+        <th class="sortable" data-sort-key="calories"  data-sort-numeric="1">Cal</th>
         <th></th>
       </tr>
     </thead>
     <tbody id="recipe-rows">
-      <% recipes.forEach(function(r) { %>
+      <% recipes.forEach(function(r) {
+           // Multiplier display for the "For you" column. null = side recipe
+           // (sides inherit their main slot's diners). Otherwise:
+           //   adj = 0  → "0×"   (nobody plans this meal)
+           //   adj = serv → "1×" (no scaling needed)
+           //   else    → "0.25×" / "1.5×" etc.
+           var adj = r.adjusted_serves;
+           var mult = null, multTip = null;
+           if (adj != null) {
+             var ratio = adj / Math.max(1, r.servings);
+             // 2 decimals, trimmed (1.50 → 1.5, 0.25 → 0.25)
+             mult = (+ratio.toFixed(2)) + '×';
+             multTip = 'Recipe makes ' + r.servings + ' servings; your household has '
+                     + adj + ' diner' + (adj === 1 ? '' : 's') + ' for ' + r.meal_type
+                     + ', so the planner cooks ' + mult + ' of the recipe.';
+           } else if (r.meal_type === 'side') {
+             multTip = 'Sides inherit the diner count of whichever main slot they are paired with.';
+           }
+           // Sort key for adjusted-serves column: numeric ratio, or large
+           // sentinel for sides so they cluster at one end of the sort.
+           var adjSortKey = adj != null ? (adj / Math.max(1, r.servings)) : -1;
+        %>
         <tr
           data-meal="<%= r.meal_type %>"
           data-favorite="<%= r.favorite ? '1' : '0' %>"
-          data-kid="<%= r.kid_friendly ? '1' : '0' %>"
           data-name="<%= r.name.toLowerCase() %>"
           data-cuisine="<%= (r.cuisine || '').toLowerCase() %>"
           data-prep-time="<%= r.prep_time %>"
+          data-servings="<%= r.servings %>"
+          data-adjusted-serves="<%= adjSortKey %>"
           data-est-cost="<%= r.est_cost %>"
           data-calories="<%= r.calories || 0 %>"
         >
@@ -149,11 +163,15 @@
           <td class="muted"><%= r.cuisine || '—' %></td>
           <td><%= r.prep_time %>m</td>
           <td><%= r.servings %></td>
+          <td<% if (multTip) { %> title="<%= multTip %>"<% } %>>
+            <% if (mult == null) { %>
+              <span class="muted">—</span>
+            <% } else { %>
+              <%= mult %>
+            <% } %>
+          </td>
           <td>$<%= r.est_cost.toFixed(2) %></td>
           <td class="muted"><%= r.calories || '—' %></td>
-          <td>
-            <% if (r.kid_friendly) { %><span class="tag kid-tag">kid</span><% } %>
-          </td>
           <td class="actions">
             <a class="link" href="/recipes?edit=<%= r.id %>">edit</a>
             <form method="post" action="/recipes/<%= r.id %>/delete" class="delete-form" data-name="<%= r.name %>" style="display:inline">
@@ -321,12 +339,16 @@ function prefillNutrition() {
   var tbody = document.getElementById('recipe-rows');
   var rows = Array.prototype.slice.call(tbody.querySelectorAll('tr'));
   var search = document.getElementById('search');
-  var kidOnly = document.getElementById('kid-only');
-  var sort = document.getElementById('sort');
   var tabs = document.querySelectorAll('.tab');
   var counter = document.getElementById('visible-count');
   var empty = document.getElementById('empty-hint');
   var activeMeal = 'all';
+
+  // Sort state. Default: name asc (matches the server's initial ORDER BY).
+  // Click a column once: ascending. Click same column again: descending.
+  var sortKey = 'name';
+  var sortDir = 1;            // 1 = asc, -1 = desc
+  var sortNumeric = false;
 
   // Confirm before delete — safely binds the recipe name at runtime.
   document.querySelectorAll('.delete-form').forEach(function(f) {
@@ -342,34 +364,70 @@ function prefillNutrition() {
     rows.forEach(function(r) {
       var meal = r.dataset.meal;
       var fav = r.dataset.favorite === '1';
-      var kid = r.dataset.kid === '1';
       var text = r.dataset.name + ' ' + r.dataset.cuisine;
       var mealMatch = activeMeal === 'all' || (activeMeal === 'favorite' ? fav : meal === activeMeal);
-      var kidMatch = kidOnly.checked ? kid : true;
       var qMatch = !q || text.indexOf(q) >= 0;
-      var show = mealMatch && kidMatch && qMatch;
+      var show = mealMatch && qMatch;
       r.style.display = show ? '' : 'none';
       if (show) visible++;
     });
-    counter.textContent = visible + ' shown';
+    if (counter) counter.textContent = visible === rows.length
+      ? ''
+      : visible + ' of ' + rows.length + ' shown';
     empty.style.display = visible === 0 ? '' : 'none';
   }
 
   function applySort() {
-    var key = sort.value;
-    var dir = 1;
-    if (key.charAt(0) === '-') { dir = -1; key = key.substring(1); }
-    // Convert snake_case to camelCase for dataset access
-    var dsKey = key.replace(/_([a-z])/g, function(_, c) { return c.toUpperCase(); });
-    var numeric = (key === 'prep_time' || key === 'est_cost' || key === 'calories');
     rows.sort(function(a, b) {
-      var av = a.dataset[dsKey] || '';
-      var bv = b.dataset[dsKey] || '';
-      if (numeric) return (parseFloat(av) - parseFloat(bv)) * dir;
-      return av.localeCompare(bv) * dir;
+      var av = a.dataset[sortKey] || '';
+      var bv = b.dataset[sortKey] || '';
+      if (sortNumeric) return (parseFloat(av) - parseFloat(bv)) * sortDir;
+      return av.localeCompare(bv) * sortDir;
     });
     rows.forEach(function(r) { tbody.appendChild(r); });
   }
+
+  // Hook up clickable column headers. Each <th class="sortable"> carries a
+  // data-sort-key (the dataset key on each row, in camelCase already since
+  // we use kebab-case in HTML and the browser translates) and
+  // data-sort-numeric ("1" or "0").
+  function dsKey(th) {
+    var k = th.getAttribute('data-sort-key') || '';
+    return k.replace(/-([a-z])/g, function(_, c) { return c.toUpperCase(); });
+  }
+  function refreshHeaderIndicators(headers) {
+    headers.forEach(function(h) {
+      var k = dsKey(h);
+      h.classList.remove('sort-asc', 'sort-desc');
+      // Strip any indicator we previously appended.
+      var label = h.textContent.replace(/\s*[▲▼]$/, '');
+      if (k === sortKey) {
+        h.classList.add(sortDir === 1 ? 'sort-asc' : 'sort-desc');
+        h.textContent = label + (sortDir === 1 ? ' ▲' : ' ▼');
+      } else {
+        h.textContent = label;
+      }
+    });
+  }
+  var headers = Array.prototype.slice.call(document.querySelectorAll('th.sortable'));
+  headers.forEach(function(h) {
+    h.style.cursor = 'pointer';
+    h.style.userSelect = 'none';
+    h.addEventListener('click', function() {
+      var newKey = dsKey(h);
+      var newNumeric = h.getAttribute('data-sort-numeric') === '1';
+      if (newKey === sortKey) {
+        sortDir = sortDir === 1 ? -1 : 1;
+      } else {
+        sortKey = newKey;
+        sortNumeric = newNumeric;
+        sortDir = 1;
+      }
+      refreshHeaderIndicators(headers);
+      applySort();
+    });
+  });
+  refreshHeaderIndicators(headers);
 
   tabs.forEach(function(t) {
     t.addEventListener('click', function() {
@@ -380,8 +438,6 @@ function prefillNutrition() {
     });
   });
   search.addEventListener('input', apply);
-  kidOnly.addEventListener('change', apply);
-  sort.addEventListener('change', function() { applySort(); apply(); });
 
   apply();
 })();
