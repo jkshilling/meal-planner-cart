@@ -354,9 +354,14 @@ async function searchFood(rawName) {
     let food = await pickVerifiedCandidate(ingredientName, initial.candidates);
 
     // STEP 2 — Verify rejected every candidate (or USDA returned nothing
-    // at all) → ask the LLM to rewrite the query and retry USDA once. The
-    // retry's top candidate is trusted as-is (the rewrite itself encodes
-    // the LLM's judgement; we don't re-walk-with-verify on the retry).
+    // at all) → ask the LLM to rewrite the query and retry USDA. The
+    // retry's candidates ALSO go through pickVerifiedCandidate, using
+    // the ORIGINAL ingredient name for the verify check — the rewrite
+    // is a USDA-friendlier query string, not a redefinition of the
+    // ingredient. Without this verify on retry, the rewrite path would
+    // trust USDA's #1 blindly, which re-introduces the cinnamon-buns
+    // bug for any rewrite that lands on a stem USDA scores poorly
+    // ("salt" → "Butter, salted", "cinnamon" → "Bread, cinnamon").
     let llmSuggested = null;
     if (!food) {
       const suggested = await llmCanonicalize.suggestCanonical(ingredientName);
@@ -364,15 +369,16 @@ async function searchFood(rawName) {
         llmSuggested = suggested;
         const retry = await fdcLookup(suggested);
         if (retry.rateLimited) return null;
-        food = retry.candidates[0] || null;
+        food = await pickVerifiedCandidate(ingredientName, retry.candidates);
       }
     }
 
-    // No safety-net fallback to candidates[0]. If verify rejected all 10
-    // AND the rewrite didn't produce a different match, no-match is the
-    // correct outcome — accepting USDA's #1 in this case is exactly the
-    // original cinnamon-buns / banana-pepper bug. The user sees the name
-    // in the Unmatched table on the settings page and can rename it.
+    // No safety-net fallback to candidates[0]. If verify rejected all
+    // candidates on both passes AND the rewrite didn't produce a
+    // different match, no-match is the correct outcome — accepting
+    // USDA's #1 in this case is exactly the original cinnamon-buns /
+    // banana-pepper bug. The user sees the name in the Unmatched table
+    // on the settings page and can rename it.
 
     const nutrients = food ? extractNutrients(food) : {
       calories_per_100g: null, protein_per_100g: null,
