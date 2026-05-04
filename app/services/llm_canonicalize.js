@@ -115,8 +115,80 @@ async function suggestCanonical(rawName) {
   }
 }
 
+// LLM-verify: ask the model whether USDA's top match is semantically
+// reasonable for the ingredient as the user typed it. Used by
+// services/usda.searchFood after FDC returns a candidate but before we
+// commit it to the cache — catches USDA's heuristic-scoring mistakes
+// like "cinnamon" → "Cinnamon buns, frosted" or "pepper" → "Pepper,
+// banana, raw" that no static rule would consistently catch.
+//
+// Returns true (match looks reasonable), false (match looks wrong), or
+// null (couldn't determine — no key, network error, model output didn't
+// parse). Callers should treat null as "trust the static scoring" so
+// failures here never make the system worse than it was before.
+const VERIFY_PROMPT = [
+  'You validate whether a USDA FoodData Central entry is a reasonable',
+  'nutritional match for a recipe ingredient name. The match is good if',
+  'the matched entry has roughly the right macros (calories, fat,',
+  'protein) for what someone usually means by the ingredient. Loose',
+  'matches are fine — the match does not have to be exact.',
+  '',
+  'Reply with ONLY "yes" or "no". No explanation, no punctuation.',
+  '',
+  'Examples of GOOD matches (reply yes):',
+  '  ingredient: kosher salt          | usda: Salt, table',
+  '  ingredient: extra virgin olive oil | usda: Oil, olive, salad or cooking',
+  '  ingredient: ground beef          | usda: Beef, ground, raw',
+  '  ingredient: lemon zest           | usda: Lemon peel, raw',
+  '',
+  'Examples of BAD matches (reply no):',
+  '  ingredient: cinnamon | usda: Cinnamon buns, frosted (includes honey buns)',
+  '  ingredient: pepper   | usda: Pepper, banana, raw',
+  '  ingredient: milk     | usda: Crackers, milk',
+  '  ingredient: chicken  | usda: Chicken nuggets, frozen, breaded'
+].join('\n');
+
+async function verifyMatch(ingredientName, usdaDescription) {
+  const key = apiKey();
+  if (!key) return null;
+  const ing = (ingredientName || '').trim();
+  const usda = (usdaDescription || '').trim();
+  if (!ing || !usda) return null;
+
+  const userMsg = `ingredient: ${ing} | usda: ${usda}`;
+  try {
+    const res = await fetch(OPENAI_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${key}`
+      },
+      body: JSON.stringify({
+        model: modelName(),
+        temperature: 0,
+        max_tokens: 3,  // "yes" / "no" — never need more
+        messages: [
+          { role: 'system', content: VERIFY_PROMPT },
+          { role: 'user',   content: userMsg }
+        ]
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const raw = data?.choices?.[0]?.message?.content;
+    if (typeof raw !== 'string') return null;
+    const norm = raw.trim().toLowerCase().replace(/[^a-z]/g, '');
+    if (norm === 'yes') return true;
+    if (norm === 'no')  return false;
+    // Some other output — bail rather than guess.
+    return null;
+  } catch (e) {
+    return null;
+  }
+}
+
 function isEnabled() {
   return !!apiKey();
 }
 
-module.exports = { suggestCanonical, isEnabled };
+module.exports = { suggestCanonical, verifyMatch, isEnabled };

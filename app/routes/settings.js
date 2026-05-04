@@ -32,10 +32,16 @@ router.get('/settings', requireAuth, (req, res) => {
     fromMaster:  db.prepare('SELECT COUNT(*) AS n FROM recipes WHERE user_id = ? AND source_id IS NOT NULL').get(uid).n
   };
 
-  // Ingredient nutrition coverage. Lists every ingredient name in the
-  // user's library that USDA isn't matching, with the count + names of
-  // affected recipes so the user can navigate straight to fix them.
-  // Status:
+  // Ingredient nutrition coverage. Two tables on the settings page:
+  //   matched   — every ingredient that has a real USDA match, shown with
+  //               the matched description + cal/100g. Lets the owner spot
+  //               wrong-but-non-empty matches by eye (e.g. "cinnamon" →
+  //               "Cinnamon buns, frosted") that the no-match table would
+  //               never surface.
+  //   unmatched — everything else (USDA found nothing, or hasn't been
+  //               asked yet), with the recipes affected.
+  //
+  // Status semantics for unmatched:
   //   'no-match' = nutrition_lookups has a row with NULL calories
   //                (USDA was queried, came back empty).
   //   'pending'  = no row in nutrition_lookups at all yet
@@ -47,49 +53,66 @@ router.get('/settings', requireAuth, (req, res) => {
       JOIN recipes r ON r.id = ri.recipe_id
      WHERE r.user_id = ?
   `).all(uid).map(r => r.ing_name).filter(Boolean);
-  let ingredientCoverage = { total_distinct: allUserIngs.length, unmatched: [] };
+  let ingredientCoverage = {
+    total_distinct: allUserIngs.length,
+    matched: [],
+    unmatched: []
+  };
   if (allUserIngs.length) {
     const placeholders = allUserIngs.map(() => '?').join(',');
     const cached = db.prepare(
-      `SELECT ingredient_name, calories_per_100g
+      `SELECT ingredient_name, matched_description, calories_per_100g, llm_suggested_name
          FROM nutrition_lookups
         WHERE ingredient_name IN (${placeholders})`
     ).all(...allUserIngs);
-    const cacheState = new Map(); // name → 'matched' | 'no-match'
-    for (const r of cached) {
-      cacheState.set(r.ingredient_name, r.calories_per_100g != null ? 'matched' : 'no-match');
+    const cacheRows = new Map();
+    for (const r of cached) cacheRows.set(r.ingredient_name, r);
+
+    // Pre-fetch every ingredient → recipe edge in one query so we can
+    // attach a recipe list to BOTH matched and unmatched entries (the
+    // matched table needs the recipe links so the owner can jump to a
+    // recipe that uses a wrong match and rename the ingredient).
+    const allUsage = db.prepare(`
+      SELECT LOWER(TRIM(ri.name)) AS ing_name, r.id, r.name
+        FROM recipe_ingredients ri
+        JOIN recipes r ON r.id = ri.recipe_id
+       WHERE r.user_id = ?
+    `).all(uid);
+    const recipesByName = new Map();
+    for (const u of allUsage) {
+      if (!recipesByName.has(u.ing_name)) recipesByName.set(u.ing_name, []);
+      const list = recipesByName.get(u.ing_name);
+      if (!list.find(x => x.id === u.id)) list.push({ id: u.id, name: u.name });
     }
-    const unmatchedNames = [];
+
+    const matched = [];
     const unmatched = [];
     for (const name of allUserIngs) {
-      const st = cacheState.has(name) ? cacheState.get(name) : 'pending';
-      if (st === 'matched') continue;
-      unmatched.push({ name, status: st, recipes: [] });
-      unmatchedNames.push(name);
-    }
-    if (unmatchedNames.length) {
-      const upPlaceholders = unmatchedNames.map(() => '?').join(',');
-      const usage = db.prepare(
-        `SELECT LOWER(TRIM(ri.name)) AS ing_name, r.id, r.name
-           FROM recipe_ingredients ri
-           JOIN recipes r ON r.id = ri.recipe_id
-          WHERE r.user_id = ?
-            AND LOWER(TRIM(ri.name)) IN (${upPlaceholders})`
-      ).all(uid, ...unmatchedNames);
-      const byName = {};
-      for (const u of unmatched) byName[u.name] = u;
-      for (const row of usage) {
-        const u = byName[row.ing_name];
-        if (u && !u.recipes.find(x => x.id === row.id)) {
-          u.recipes.push({ id: row.id, name: row.name });
-        }
+      const row = cacheRows.get(name);
+      const recipes = recipesByName.get(name) || [];
+      if (row && row.calories_per_100g != null) {
+        matched.push({
+          name,
+          usda_description: row.matched_description,
+          calories_per_100g: row.calories_per_100g,
+          llm_suggested_name: row.llm_suggested_name,
+          recipes
+        });
+      } else {
+        const status = row ? 'no-match' : 'pending';
+        unmatched.push({ name, status, recipes });
       }
     }
-    // Most-used unmatched first, then alphabetical — surfaces the highest-
-    // impact rename targets at the top of the list.
+    // Matched: alphabetical by ingredient name. The owner is scanning the
+    // table for weird matches by eye, and alphabetical is the most
+    // predictable order for that scan.
+    matched.sort((a, b) => a.name.localeCompare(b.name));
+    // Unmatched: most-used first, then alphabetical — surfaces the
+    // highest-impact rename targets at the top.
     unmatched.sort((a, b) =>
       b.recipes.length - a.recipes.length || a.name.localeCompare(b.name)
     );
+    ingredientCoverage.matched = matched;
     ingredientCoverage.unmatched = unmatched;
   }
   res.render('settings', {

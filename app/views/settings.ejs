@@ -155,27 +155,65 @@
 
 <div class="card" id="ingredient-coverage">
   <h2>Ingredient nutrition coverage</h2>
-  <% var matchedDistinct = ingredientCoverage.total_distinct - ingredientCoverage.unmatched.length; %>
   <p class="muted">
-    <strong><%= matchedDistinct %></strong> of <strong><%= ingredientCoverage.total_distinct %></strong>
+    <strong><%= ingredientCoverage.matched.length %></strong> of
+    <strong><%= ingredientCoverage.total_distinct %></strong>
     distinct ingredients in your library are matched by USDA and contribute to per-recipe nutrition.
     <% if (ingredientCoverage.unmatched.length === 0) { %>
       Everything's accounted for — no missing macros.
     <% } else { %>
-      The <%= ingredientCoverage.unmatched.length %> below aren't being matched, so they're invisible
-      to the calorie / sodium / etc. totals on the recipes that use them. Renaming them to more standard
-      spellings usually fixes it (<em>"regular olive oil"</em> → <em>"olive oil"</em>,
-      <em>"cremini mushrooms"</em> → <em>"mushrooms"</em>). Click a recipe name to jump straight to its
-      ingredient list.
+      The <%= ingredientCoverage.unmatched.length %> in the second table aren't matched and
+      are invisible to recipe totals. Renaming usually fixes it
+      (<em>"regular olive oil"</em> → <em>"olive oil"</em>).
     <% } %>
+    Scan the matched table below for any wrong-looking entries
+    (e.g. <em>"cinnamon"</em> → <em>"Cinnamon buns, frosted"</em>) — those count toward
+    your recipes' nutrition with whatever calorie value is shown, so a bad match silently skews things.
+    Click any recipe name to jump straight to it.
   </p>
+
+  <% if (ingredientCoverage.matched.length > 0) { %>
+    <h3 style="margin-top: 1.2em;">Matched (<%= ingredientCoverage.matched.length %>)</h3>
+    <table class="grid-table">
+      <thead>
+        <tr>
+          <th>Ingredient</th>
+          <th>USDA matched as</th>
+          <th>cal/100g</th>
+          <th>Recipes</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% ingredientCoverage.matched.forEach(function(ing) { %>
+          <tr>
+            <td><code><%= ing.name %></code></td>
+            <td>
+              <%= ing.usda_description || '—' %>
+              <% if (ing.llm_suggested_name) { %>
+                <br><span class="muted tiny">via LLM rewrite: <em><%= ing.llm_suggested_name %></em></span>
+              <% } %>
+            </td>
+            <td><%= Math.round(ing.calories_per_100g) %></td>
+            <td>
+              <% ing.recipes.forEach(function(r, ix) { %>
+                <a href="/recipes?edit=<%= r.id %>"><%= r.name %></a><% if (ix < ing.recipes.length - 1) { %>, <% } %>
+              <% }) %>
+              <span class="muted tiny">(<%= ing.recipes.length %>)</span>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  <% } %>
+
   <% if (ingredientCoverage.unmatched.length > 0) { %>
+    <h3 style="margin-top: 1.2em;">Unmatched (<%= ingredientCoverage.unmatched.length %>)</h3>
     <table class="grid-table">
       <thead>
         <tr>
           <th>Ingredient</th>
           <th>Status</th>
-          <th>Recipes using it (<%= ingredientCoverage.unmatched.length %>)</th>
+          <th>Recipes</th>
         </tr>
       </thead>
       <tbody>

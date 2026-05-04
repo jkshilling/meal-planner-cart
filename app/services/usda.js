@@ -274,12 +274,21 @@ async function fdcLookup(query) {
 // Cache key is the CLEANED ingredient name, so "chopped tomatoes",
 // "diced tomatoes", and "tomatoes" all share one cache entry.
 //
-// On a hard miss (FDC returns zero candidates for the canonical name), we
-// optionally ask an LLM (services/llm_canonicalize) for a USDA-friendlier
-// rewrite and retry FDC once with that. The LLM is silently skipped if no
-// OPENAI_API_KEY is configured. Either way the final result — match or
-// no-match — is cached under the ORIGINAL canonical key so we never run
-// this dance twice for the same input.
+// LLM steps (services/llm_canonicalize) on the path:
+//   1. VERIFY — if FDC returned a candidate, ask the LLM whether it's a
+//      semantically reasonable match for the ingredient name. This catches
+//      USDA's heuristic-scoring failures ("cinnamon" → "Cinnamon buns,
+//      frosted") that no static rule reliably catches. On a "no" verdict
+//      we treat it as if FDC had returned nothing and fall through to:
+//   2. REWRITE — if FDC returned nothing (or VERIFY rejected), ask the LLM
+//      for a USDA-friendlier rewrite of the name and retry FDC once. The
+//      retry's match is trusted as-is (we don't recurse VERIFY on it; the
+//      rewrite itself encodes the LLM's judgement).
+//
+// Both LLM steps are silently skipped if no OPENAI_API_KEY is configured.
+// Either way the final result — match or no-match — is cached under the
+// ORIGINAL canonical key so we never run this dance twice for the same
+// input.
 async function searchFood(rawName) {
   const ingredientName = canonicalize(rawName);
   if (!ingredientName) return null;
@@ -291,10 +300,18 @@ async function searchFood(rawName) {
     let { rateLimited, food } = await fdcLookup(ingredientName);
     if (rateLimited) return null;  // don't poison the cache; try again next render
 
+    // STEP 1 — VERIFY. Only invoke when we have a candidate to validate.
+    // null verdict means "could not determine" → trust the static scoring
+    // (don't reject on LLM uncertainty).
+    if (food) {
+      const verdict = await llmCanonicalize.verifyMatch(ingredientName, food.description);
+      if (verdict === false) {
+        food = null;  // reject; fall through to REWRITE
+      }
+    }
+
+    // STEP 2 — REWRITE. Triggered by FDC zero-result OR VERIFY rejection.
     let llmSuggested = null;
-    // LLM fallback: only if the canonical name had no FDC match. The LLM
-    // call is a no-op when OPENAI_API_KEY isn't set, so this path is safe
-    // to leave wired up unconditionally.
     if (!food) {
       const suggested = await llmCanonicalize.suggestCanonical(ingredientName);
       if (suggested && suggested !== ingredientName) {
