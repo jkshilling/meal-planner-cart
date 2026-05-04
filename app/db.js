@@ -222,6 +222,18 @@ CREATE TABLE IF NOT EXISTS nutrition_lookups (
   fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+-- Source IDs (Spoonacular recipe IDs) that the owner has decided shouldn't
+-- be in anyone's library. The "Exclude from master library" button on a
+-- recipe row inserts here AND deletes the row. Re-sync paths (signup-time
+-- seed and the explicit re-sync button) filter out these IDs so the recipe
+-- never lands in any user's library again — including future signups.
+-- Existing copies in OTHER users' libraries are not retroactively deleted.
+CREATE TABLE IF NOT EXISTS excluded_recipe_sources (
+  source_id TEXT PRIMARY KEY,
+  reason TEXT,
+  excluded_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Tiny key/value bag for app-wide settings. Used to be the home of the
 -- grocery-events API token before it was made per-user (see
 -- user_grocery_tokens below); keep around for any future global flags.

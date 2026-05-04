@@ -2,9 +2,20 @@ const express = require('express');
 const db = require('../db');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
+const household = require('../services/household');
 const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
+
+// Gate routes on the bootstrap owner. Used by the "exclude from master
+// library" handler — only the owner can curate the master library.
+function requireOwner(req, res, next) {
+  if (res.locals.isOwner) return next();
+  return res.status(403).render('error', {
+    title: 'Forbidden',
+    message: 'This action is owner-only.'
+  });
+}
 
 function parseIngredients(body) {
   const names = [].concat(body.ing_name || []);
@@ -249,6 +260,41 @@ router.post('/recipes/:id/delete', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
   db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
+  res.redirect('/recipes');
+});
+
+// Owner-only. Marks the recipe's source_id as excluded from the master
+// library AND deletes the owner's copy in one transaction. Future re-syncs
+// (signup-time seeding + the explicit re-sync button) will skip this
+// source_id, so the recipe never re-appears in the owner's library or any
+// new user's seeded library. Existing copies in OTHER users' libraries
+// are NOT retroactively deleted — those users may have personalized them.
+//
+// 404s if the recipe doesn't exist for the owner or has no source_id
+// (hand-entered recipes can't be "excluded from the master library"
+// because they were never in it).
+router.post('/recipes/:id/exclude', requireAuth, requireOwner, (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  const uid = userIdOf(req);
+  const r = db.prepare('SELECT id, source_id, name FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
+  if (!r) return res.status(404).render('error', { title: 'Not Found', message: 'Recipe not found.' });
+  if (!r.source_id) {
+    return res.status(400).render('error', {
+      title: 'Not eligible',
+      message: 'This recipe is hand-entered and isn\'t part of the master library — there\'s nothing to exclude.'
+    });
+  }
+  const tx = db.transaction(() => {
+    household.excludeFromMasterLibrary(r.source_id, `excluded by owner via recipe row: "${r.name}"`);
+    db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
+  });
+  tx();
+  if (req.session) {
+    req.session.flash = {
+      type: 'success',
+      message: `Excluded "${r.name}" from the master library. Future re-syncs will skip it.`
+    };
+  }
   res.redirect('/recipes');
 });
 

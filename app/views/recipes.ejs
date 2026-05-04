@@ -160,6 +160,13 @@
               <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
               <button class="link delete-link" type="submit">delete</button>
             </form>
+            <% if (isOwner && r.source_id) { %>
+              <form method="post" action="/recipes/<%= r.id %>/exclude" class="exclude-form" data-name="<%= r.name %>" style="display:inline"
+                    onsubmit="return confirm('Exclude “<%= r.name %>” from the master library? This deletes your copy AND prevents it from being re-added to anyone's library on future re-syncs or signups. Existing copies in other users' libraries are not removed.');">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button class="link delete-link" type="submit" title="Owner only: remove this recipe from the master library so it won't be re-seeded to anyone.">exclude</button>
+              </form>
+            <% } %>
           </td>
         </tr>
       <% }) %>

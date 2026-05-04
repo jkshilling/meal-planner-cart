@@ -126,15 +126,21 @@ function seedRecipesForUser(userId) {
 
 // Copy any of source_user's source_id-bearing recipes into target_user that
 // target_user doesn't already have. Deep copy: row + recipe_ingredients,
-// favorite reset to 0 on the new row.
+// favorite reset to 0 on the new row. Excluded source_ids (the owner's
+// "exclude from master library" list) are filtered out so they never
+// propagate to new signups or re-syncs.
 function copyFromOwnerLibrary(targetUserId, sourceUserId) {
   const have = userSourceIds(targetUserId);
+  const excluded = excludedSourceIds();
   const sources = db.prepare(`
     SELECT id, name, meal_type, cuisine, kid_friendly, prep_time, servings,
            est_cost, calories, protein, fiber, sugar, sodium, notes, source_id
       FROM recipes
      WHERE user_id = ? AND source_id IS NOT NULL
-  `).all(sourceUserId).filter(r => !have.has(String(r.source_id)));
+  `).all(sourceUserId).filter(r => {
+    const sid = String(r.source_id);
+    return !have.has(sid) && !excluded.has(sid);
+  });
   if (!sources.length) return 0;
 
   const selectIngs = db.prepare(
@@ -160,9 +166,12 @@ function importFromStagedJson(targetUserId) {
   if (!Array.isArray(staged) || !staged.length) return 0;
 
   const have = userSourceIds(targetUserId);
-  const missing = staged.filter(
-    r => r.source_id != null && !have.has(String(r.source_id))
-  );
+  const excluded = excludedSourceIds();
+  const missing = staged.filter(r => {
+    if (r.source_id == null) return false;
+    const sid = String(r.source_id);
+    return !have.has(sid) && !excluded.has(sid);
+  });
   if (!missing.length) return 0;
 
   // Map the JSON shape onto our column shape. Defaults match data/seed.js.
@@ -198,6 +207,31 @@ function userSourceIds(userId) {
       'SELECT source_id FROM recipes WHERE user_id = ? AND source_id IS NOT NULL'
     ).all(userId).map(r => String(r.source_id))
   );
+}
+
+// Set of source_ids the owner has marked "do not propagate." Resync paths
+// filter against this so excluded recipes never re-appear in the owner's
+// library or in any new user's seeded library. Existing copies in other
+// users' libraries are NOT retroactively removed.
+function excludedSourceIds() {
+  return new Set(
+    db.prepare('SELECT source_id FROM excluded_recipe_sources').all().map(r => String(r.source_id))
+  );
+}
+
+// Mark a source_id as excluded from the master library so re-sync (and
+// future signups) skip it. Idempotent — re-excluding the same source_id
+// updates `reason` if provided. Optional reason for audit/debugging
+// (shown on the settings page when we eventually surface the list).
+function excludeFromMasterLibrary(sourceId, reason) {
+  if (!sourceId) return;
+  db.prepare(`
+    INSERT INTO excluded_recipe_sources (source_id, reason)
+    VALUES (?, ?)
+    ON CONFLICT(source_id) DO UPDATE SET
+      reason = COALESCE(excluded.reason, excluded_recipe_sources.reason),
+      excluded_at = datetime('now')
+  `).run(String(sourceId), reason || null);
 }
 
 // Shared insert pipeline. `rows` is an array of objects with the recipe
@@ -243,5 +277,6 @@ module.exports = {
   claimOrphanedHouseholds,
   createHouseholdForUser,
   seedRecipesForUser,
+  excludeFromMasterLibrary,
   profileForUser
 };

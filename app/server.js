@@ -65,10 +65,18 @@ app.use((req, res, next) => {
 // csrf.verify so a CSRF-rejection error page still has the nav locals
 // (currentUser) it needs to render.
 const { formatDate, formatDateTime } = require('./services/format');
+const OWNER_EMAIL = (process.env.BOOTSTRAP_OWNER_EMAIL || '').toLowerCase().trim();
 app.use((req, res, next) => {
   res.locals.formatDate = formatDate;
   res.locals.formatDateTime = formatDateTime;
   res.locals.currentUser = (req.session && req.session.user) ? req.session.user : null;
+  // True when the logged-in user is the bootstrap owner — used to gate
+  // owner-only UI like the "Exclude from master library" button.
+  res.locals.isOwner = !!(
+    OWNER_EMAIL &&
+    res.locals.currentUser &&
+    String(res.locals.currentUser.email || '').toLowerCase().trim() === OWNER_EMAIL
+  );
   next();
 });
 
