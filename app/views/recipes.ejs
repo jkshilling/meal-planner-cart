@@ -44,7 +44,18 @@
       <label>Prep (min) <input name="prep_time" type="number" min="1" value="<%= editing ? editing.prep_time : 20 %>" /></label>
       <label>Servings <input name="servings" type="number" min="1" value="<%= editing ? editing.servings : 2 %>" /></label>
       <label>Cost ($) <input name="est_cost" type="number" step="0.01" min="0" value="<%= editing ? editing.est_cost : 8 %>" /></label>
-      <label class="inline" style="flex:0 1 auto"><input type="checkbox" name="favorite" <%= editing && editing.favorite ? 'checked' : '' %>/> favorite</label>
+      <%# Favorite checkbox lives in the same row as Prep / Servings / Cost. %>
+      <%# The other fields are stacked-label-over-input; this one is just a %>
+      <%# checkbox + word, so without a spacer above the box it floats up to %>
+      <%# label-row height instead of sitting next to the inputs. The empty %>
+      <%# <span> reserves vertical space matching the label text. %>
+      <label class="favorite-toggle" style="flex:0 1 auto">
+        <span aria-hidden="true">&nbsp;</span>
+        <span class="favorite-toggle-row">
+          <input type="checkbox" name="favorite" <%= editing && editing.favorite ? 'checked' : '' %>/>
+          favorite
+        </span>
+      </label>
     </div>
     <fieldset>
       <legend>Nutrition (per serving)</legend>

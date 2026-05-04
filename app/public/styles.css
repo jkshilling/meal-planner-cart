@@ -206,6 +206,31 @@ a:hover { color: var(--burgundy-ink); text-decoration: underline; }
    form doesn't have a stubby textarea floating beside a tall table. */
 .recipe-notes-label { display: flex; flex-direction: column; }
 .recipe-notes-textarea { flex: 1; min-height: 220px; resize: vertical; }
+
+/* Favorite checkbox sits in the same .row as the Prep / Servings / Cost
+   label-over-input pairs. Without a spacer it floats to label-row height
+   (top of the row) while the inputs sit below. The first <span> reserves
+   space matching the label text so the checkbox-row lines up with the
+   inputs underneath. */
+.favorite-toggle {
+  display: inline-flex;
+  flex-direction: column;
+  margin-bottom: 12px;
+}
+.favorite-toggle > span:first-child {
+  font-size: 13px;
+  line-height: 1.4;
+  margin-bottom: 6px;
+}
+.favorite-toggle-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 38px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.favorite-toggle input[type="checkbox"] { margin: 0; }
 .grid.two > .card { margin-bottom: 0; }
 @media (max-width: 820px) { .grid, .grid.two { grid-template-columns: 1fr; } }
 
