@@ -83,11 +83,10 @@ CREATE TABLE IF NOT EXISTS recipes (
   prep_time INTEGER NOT NULL DEFAULT 20,
   servings INTEGER NOT NULL DEFAULT 2,
   est_cost REAL NOT NULL DEFAULT 8,
-  calories INTEGER,
-  protein REAL,
-  fiber REAL,
-  sugar REAL,
-  sodium REAL,
+  -- (calories/protein/fiber/sugar/sodium were stored columns until they
+  -- were derived. Now computed at render time from recipe_ingredients +
+  -- nutrition_lookups via services/usda.nutritionFromCache. The dropped
+  -- columns are removed by the migration block below for existing DBs.)
   favorite INTEGER NOT NULL DEFAULT 0,
   notes TEXT,
   -- External source ID (e.g. Spoonacular recipe ID, stringified). NULL for
@@ -379,6 +378,16 @@ db.exec('DROP TABLE IF EXISTS automation_runs');
 // recipe is one we like." The column is dropped from the schema; new
 // databases never have it.
 dropColumnIfExists('recipes', 'kid_friendly');
+
+// Nutrition columns are now derived (computed from recipe_ingredients +
+// nutrition_lookups at render time via services/usda.nutritionFromCache).
+// Drop the stored columns so unit-conversion or USDA-data fixes propagate
+// automatically on the next render — no recipe re-save sweep required.
+dropColumnIfExists('recipes', 'calories');
+dropColumnIfExists('recipes', 'protein');
+dropColumnIfExists('recipes', 'fiber');
+dropColumnIfExists('recipes', 'sugar');
+dropColumnIfExists('recipes', 'sodium');
 
 // household_members.lunch_behavior → meal_behavior_json migration.
 // The old single column gated lunch only ('plan' | 'school' | 'skip').

@@ -1,5 +1,25 @@
 const db = require('../db');
 const productCache = require('./product_cache');
+const usda = require('./usda');
+
+// Walk a list of recipes (each must already have its `ingredients` array
+// populated) and attach computed per-serving nutrition by reading the
+// USDA cache. Mutates each recipe in place; missing-from-cache ingredients
+// contribute 0. Used everywhere we need r.calories / r.protein / r.fiber /
+// r.sugar / r.sodium for display or scoring — those used to be stored
+// columns but are now derived on read so unit-conversion / data fixes
+// propagate automatically without re-saving every recipe.
+function attachNutrition(recipes) {
+  for (const r of recipes) {
+    const n = usda.nutritionFromCache(r.ingredients || [], r.servings);
+    r.calories = n ? n.calories : null;
+    r.protein  = n ? n.protein  : null;
+    r.fiber    = n ? n.fiber    : null;
+    r.sugar    = n ? n.sugar    : null;
+    r.sodium   = n ? n.sodium   : null;
+  }
+  return recipes;
+}
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -66,6 +86,7 @@ function loadRecipes(userId) {
   const byId = {};
   for (const r of recipes) { r.ingredients = []; byId[r.id] = r; }
   for (const ing of ings) { if (byId[ing.recipe_id]) byId[ing.recipe_id].ingredients.push(ing); }
+  attachNutrition(recipes);  // r.calories/protein/fiber/sugar/sodium derived from cache
   return recipes;
 }
 
@@ -382,7 +403,6 @@ function loadPlan(planId) {
   const items = db.prepare(`
     SELECT wpi.*,
            r.name as recipe_name, r.prep_time, r.est_cost, r.servings,
-           r.calories, r.protein, r.fiber, r.sugar, r.sodium,
            sr.name as side_recipe_name, sr.prep_time as side_prep_time, sr.est_cost as side_est_cost
     FROM weekly_plan_items wpi
     LEFT JOIN recipes r  ON wpi.recipe_id = r.id

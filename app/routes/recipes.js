@@ -36,36 +36,16 @@ function parseIngredients(body) {
   return out;
 }
 
-// On save, recompute per-serving nutrition from the ingredients via USDA so
-// users don't have to remember to click "Pre-fill from USDA" every time
-// they tweak a recipe. Returns either { calories, protein, fiber, sugar,
-// sodium } or null on any failure (no API key, network error, no
-// ingredients matched). Form values are the fallback when null is returned,
-// so a USDA outage never blocks a save.
-async function recomputeNutrition(ings, servings) {
-  if (!ings.length) return null;
-  try {
-    const r = await usda.recipeNutrition(ings, Math.max(1, servings || 1));
-    if (!r || !r.covered_ingredients) return null;
-    return {
-      calories: r.calories,
-      protein:  r.protein,
-      fiber:    r.fiber,
-      sugar:    r.sugar,
-      sodium:   r.sodium
-    };
-  } catch (e) {
-    return null;
-  }
-}
-
-// Pick computed value when USDA returned one; otherwise fall back to whatever
-// the form sent (parsed as the right type, or null if blank).
-function pickNutrition(computed, formValue, parser) {
-  if (computed != null) return computed;
-  if (formValue === undefined || formValue === '' || formValue === null) return null;
-  const v = parser(formValue);
-  return Number.isFinite(v) ? v : null;
+// Fire-and-forget: hit USDA for each ingredient name so nutrition_lookups
+// is warm by the next render. Don't await, don't block the save, never
+// throw. The recipe list / planner read derived nutrition from the cache
+// at render time (services/usda.nutritionFromCache); this is what makes
+// sure that cache has data to read.
+function warmNutritionCache(ings, servings) {
+  if (!ings || !ings.length) return;
+  // Fire and forget. searchFood populates nutrition_lookups; recipeNutrition
+  // is a convenient way to hit every ingredient in one go.
+  usda.recipeNutrition(ings, Math.max(1, servings || 1)).catch(() => {});
 }
 
 // Fetch a recipe scoped to the request's user. Returns null on miss
@@ -80,7 +60,38 @@ function fetchRecipe(id, uid) {
 router.get('/recipes', requireAuth, (req, res) => {
   const uid = userIdOf(req);
   const recipes = db.prepare('SELECT * FROM recipes WHERE user_id = ? ORDER BY meal_type, name').all(uid);
+  // Attach ingredients + computed-from-cache nutrition to every recipe.
+  // Nutrition is derived (no longer stored on recipes) so unit/USDA logic
+  // changes propagate to the UI on next render — no save sweep required.
+  const allIds = recipes.map(r => r.id);
+  if (allIds.length) {
+    const placeholders = allIds.map(() => '?').join(',');
+    const allIngs = db.prepare(
+      `SELECT * FROM recipe_ingredients WHERE recipe_id IN (${placeholders})`
+    ).all(...allIds);
+    const byRecipe = {};
+    for (const r of recipes) { r.ingredients = []; byRecipe[r.id] = r; }
+    for (const ing of allIngs) {
+      if (byRecipe[ing.recipe_id]) byRecipe[ing.recipe_id].ingredients.push(ing);
+    }
+    for (const r of recipes) {
+      const n = usda.nutritionFromCache(r.ingredients, r.servings);
+      r.calories = n ? n.calories : null;
+      r.protein  = n ? n.protein  : null;
+      r.fiber    = n ? n.fiber    : null;
+      r.sugar    = n ? n.sugar    : null;
+      r.sodium   = n ? n.sodium   : null;
+    }
+  }
   const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10), uid) : null;
+  if (editing) {
+    const n = usda.nutritionFromCache(editing.ingredients, editing.servings);
+    editing.calories = n ? n.calories : null;
+    editing.protein  = n ? n.protein  : null;
+    editing.fiber    = n ? n.fiber    : null;
+    editing.sugar    = n ? n.sugar    : null;
+    editing.sodium   = n ? n.sodium   : null;
+  }
   const counts = {
     total: recipes.length,
     breakfast: recipes.filter(r => r.meal_type === 'breakfast').length,
@@ -165,42 +176,33 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
     if (!recipe) return res.redirect('/recipes?import_err=not_found');
     const mealType = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].includes(b.meal_type) ? b.meal_type : recipe.meal_type;
 
-    // Spoonacular populates nutrition directly; only fall back to USDA on
-    // the rare recipe where their nutrient list came back empty.
-    let { calories = null, protein = null, fiber = null, sugar = null, sodium = null } = recipe;
-    const haveNutrition = [calories, protein, fiber, sugar, sodium].some(v => v != null);
-    if (!haveNutrition) {
-      const looked = await usda.recipeNutrition(recipe.ingredients, recipe.servings).catch(() => null);
-      if (looked) ({ calories, protein, fiber, sugar, sodium } = looked);
-    }
-
     const info = db.prepare(`INSERT INTO recipes
-      (name, meal_type, cuisine, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      (name, meal_type, cuisine, prep_time, servings, est_cost, favorite, notes, user_id, source_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(recipe.name, mealType, recipe.cuisine, recipe.prep_time, recipe.servings, recipe.est_cost,
-           calories, protein, fiber, sugar, sodium, 0, recipe.notes, uid, sourceId);
+           0, recipe.notes, uid, sourceId);
     const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
     for (const ing of recipe.ingredients) {
       insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
     }
+    // Warm USDA cache for any new ingredient names so the next render of
+    // the list/edit form has nutrition data to display.
+    warmNutritionCache(recipe.ingredients, recipe.servings);
     return res.redirect('/recipes?edit=' + info.lastInsertRowid);
   } catch (e) {
     return res.redirect('/recipes?import_err=' + encodeURIComponent(e.message));
   }
 });
 
-router.post('/recipes', requireAuth, async (req, res) => {
+router.post('/recipes', requireAuth, (req, res) => {
   const b = req.body;
   const name = (b.name || '').trim();
   const mealType = (b.meal_type || 'dinner').trim();
   const servings = parseInt(b.servings, 10) || 2;
   const ings = parseIngredients(b);
-  // Recompute nutrition from ingredients whenever there's something to
-  // compute against. Form values still ride along as fallback.
-  const nut = await recomputeNutrition(ings, servings);
   const info = db.prepare(`INSERT INTO recipes
-    (name, meal_type, cuisine, prep_time, servings, est_cost, calories, protein, fiber, sugar, sodium, favorite, notes, user_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    (name, meal_type, cuisine, prep_time, servings, est_cost, favorite, notes, user_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(
       name || 'Untitled',
       mealType,
@@ -208,11 +210,6 @@ router.post('/recipes', requireAuth, async (req, res) => {
       parseInt(b.prep_time, 10) || 20,
       servings,
       parseFloat(b.est_cost) || 8,
-      pickNutrition(nut && nut.calories, b.calories, v => parseInt(v, 10)),
-      pickNutrition(nut && nut.protein,  b.protein,  parseFloat),
-      pickNutrition(nut && nut.fiber,    b.fiber,    parseFloat),
-      pickNutrition(nut && nut.sugar,    b.sugar,    parseFloat),
-      pickNutrition(nut && nut.sodium,   b.sodium,   parseFloat),
       b.favorite ? 1 : 0,
       (b.notes || '').trim() || null,
       userIdOf(req)
@@ -220,10 +217,13 @@ router.post('/recipes', requireAuth, async (req, res) => {
   const rid = info.lastInsertRowid;
   const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
   for (const i of ings) insertIng.run(rid, i.name, i.quantity, i.unit);
+  // Warm USDA cache for any new ingredient names so the recipe list shows
+  // nutrition on next render. Fire-and-forget so the save doesn't block.
+  warmNutritionCache(ings, servings);
   res.redirect('/recipes');
 });
 
-router.post('/recipes/:id', requireAuth, async (req, res) => {
+router.post('/recipes/:id', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
   const b = req.body;
@@ -231,13 +231,9 @@ router.post('/recipes/:id', requireAuth, async (req, res) => {
   if (!own) return res.status(404).render('error', { title: 'Not Found', message: 'Recipe not found.' });
   const servings = parseInt(b.servings, 10) || 2;
   const ings = parseIngredients(b);
-  // Same auto-recompute on edit. Users had to remember to click "Pre-fill
-  // from USDA" after every ingredient/serving tweak before this; now save
-  // does it for them.
-  const nut = await recomputeNutrition(ings, servings);
   db.prepare(`UPDATE recipes SET
     name = ?, meal_type = ?, cuisine = ?, prep_time = ?, servings = ?, est_cost = ?,
-    calories = ?, protein = ?, fiber = ?, sugar = ?, sodium = ?, favorite = ?, notes = ?
+    favorite = ?, notes = ?
     WHERE id = ? AND user_id = ?`)
     .run(
       (b.name || 'Untitled').trim(),
@@ -246,11 +242,6 @@ router.post('/recipes/:id', requireAuth, async (req, res) => {
       parseInt(b.prep_time, 10) || 20,
       servings,
       parseFloat(b.est_cost) || 8,
-      pickNutrition(nut && nut.calories, b.calories, v => parseInt(v, 10)),
-      pickNutrition(nut && nut.protein,  b.protein,  parseFloat),
-      pickNutrition(nut && nut.fiber,    b.fiber,    parseFloat),
-      pickNutrition(nut && nut.sugar,    b.sugar,    parseFloat),
-      pickNutrition(nut && nut.sodium,   b.sodium,   parseFloat),
       b.favorite ? 1 : 0,
       (b.notes || '').trim() || null,
       id,
@@ -259,6 +250,8 @@ router.post('/recipes/:id', requireAuth, async (req, res) => {
   db.prepare('DELETE FROM recipe_ingredients WHERE recipe_id = ?').run(id);
   const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
   for (const i of ings) insertIng.run(id, i.name, i.quantity, i.unit);
+  // Warm USDA cache for any newly-introduced ingredient names. Fire-and-forget.
+  warmNutritionCache(ings, servings);
   res.redirect('/recipes');
 });
 

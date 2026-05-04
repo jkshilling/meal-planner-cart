@@ -372,6 +372,65 @@ function unitToGrams(quantity, unit, ingredientName) {
   return null;
 }
 
+// Sync, cache-only sibling of recipeNutrition. Reads from nutrition_lookups
+// without ever calling the USDA API — used on hot render paths (recipe list,
+// planner scoring, plan review) where we don't want network latency. Any
+// ingredient missing from the cache contributes 0 to the totals; the
+// returned `covered` field tells callers how complete the result is. The
+// async recipeNutrition below is the cache-warming path and gets called on
+// recipe save / import to populate the cache so this function has data to
+// read on subsequent renders.
+function nutritionFromCache(ingredients, servings) {
+  // Lazy-require db so this module stays loadable from a no-DB context if
+  // anyone ever wants to (and so the unit-conversion exports don't pull in
+  // SQLite at module-load time).
+  const db = require('../db');
+  let cal = 0, pro = 0, fi = 0, su = 0, so = 0;
+  let covered = 0;
+  const total = (ingredients || []).length;
+  if (!total) return null;
+
+  // Batch-fetch every ingredient's cached row in one query instead of N
+  // round-trips. Keys are the same normalize(name) the searchFood path uses
+  // so the lookup hits.
+  const names = ingredients.map(i => normalize(i.name));
+  if (!names.length) return null;
+  const placeholders = names.map(() => '?').join(',');
+  const cached = db.prepare(
+    `SELECT ingredient_name, calories_per_100g, protein_per_100g,
+            fiber_per_100g, sugar_per_100g, sodium_per_100g
+       FROM nutrition_lookups
+      WHERE ingredient_name IN (${placeholders})`
+  ).all(...names);
+  const byName = {};
+  for (const row of cached) byName[row.ingredient_name] = row;
+
+  for (const ing of ingredients) {
+    const grams = unitToGrams(ing.quantity, ing.unit, ing.name);
+    if (!grams) continue;
+    const food = byName[normalize(ing.name)];
+    if (!food || food.calories_per_100g == null) continue;
+    const factor = grams / 100;
+    cal += (food.calories_per_100g || 0) * factor;
+    pro += (food.protein_per_100g  || 0) * factor;
+    fi  += (food.fiber_per_100g    || 0) * factor;
+    su  += (food.sugar_per_100g    || 0) * factor;
+    so  += (food.sodium_per_100g   || 0) * factor;
+    covered++;
+  }
+  if (!covered) return null;
+  const s = Math.max(1, servings || 1);
+  return {
+    calories: Math.round(cal / s),
+    protein:  +(pro / s).toFixed(1),
+    fiber:    +(fi  / s).toFixed(1),
+    sugar:    +(su  / s).toFixed(1),
+    sodium:   +(so  / s).toFixed(1),
+    covered_ingredients: covered,
+    total_ingredients: total
+  };
+}
+
 // Compute total recipe nutrition by summing per-ingredient values. Returns
 // per-serving numbers (so health scoring stays comparable across recipes).
 async function recipeNutrition(ingredients, servings) {
@@ -403,4 +462,4 @@ async function recipeNutrition(ingredients, servings) {
   };
 }
 
-module.exports = { searchFood, unitToGrams, recipeNutrition };
+module.exports = { searchFood, unitToGrams, recipeNutrition, nutritionFromCache };
