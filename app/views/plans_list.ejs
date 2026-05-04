@@ -1,0 +1,64 @@
+<%- include('partials/header') %>
+<h1>All plans</h1>
+<p class="muted">
+  Every weekly plan you've generated. The most recent one is what
+  <a href="/planner">/planner</a> jumps to by default. Delete old plans to
+  clean up — slot rows go with them automatically.
+</p>
+
+<% if (!plans.length) { %>
+  <section class="card" style="text-align:center; padding: 32px 28px;">
+    <p class="muted" style="margin: 0 0 18px;">No plans yet.</p>
+    <a class="btn primary" href="/planner">Generate your first plan</a>
+  </section>
+<% } else { %>
+  <div class="card">
+    <table class="grid-table">
+      <thead>
+        <tr>
+          <th>Plan</th>
+          <th>Week of</th>
+          <th>Status</th>
+          <th>Slots filled</th>
+          <th>Est. cost</th>
+          <th>Created</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        <% plans.forEach(function(p) { %>
+          <tr>
+            <td><a href="/plan/<%= p.id %>">#<%= p.id %></a></td>
+            <td><%= p.start_date %></td>
+            <td>
+              <% if (p.status === 'approved') { %>
+                <span style="color: #2e7d32; font-weight: 600;">approved</span>
+              <% } else { %>
+                <span class="muted"><%= p.status %></span>
+              <% } %>
+            </td>
+            <td>
+              <%= p.filled %> / <%= p.slots %>
+              <% if (p.slots && p.filled < p.slots) { %>
+                <span class="muted tiny">(<%= p.slots - p.filled %> empty)</span>
+              <% } %>
+            </td>
+            <td>$<%= (p.total_cost || 0).toFixed(2) %></td>
+            <td class="muted tiny"><%= p.created_at %></td>
+            <td>
+              <a class="btn" href="/plan/<%= p.id %>">View</a>
+              <form method="post" action="/plan/<%= p.id %>/delete" style="display:inline">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <button class="link" type="submit"
+                        onclick="return confirm('Delete plan #<%= p.id %>? This cannot be undone.');"
+                        style="color: #b00020;">Delete</button>
+              </form>
+            </td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
+
+<%- include('partials/footer') %>

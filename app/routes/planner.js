@@ -15,6 +15,37 @@ router.get('/planner', requireAuth, (req, res) => {
   res.render('planner_empty', { title: 'Weekly Planner' });
 });
 
+// List every plan the user owns. Used to delete old plans and to navigate
+// to historical plans (the /planner link only ever shows the latest). Each
+// row reports total/filled slot counts so the user can see at a glance
+// which plans are still half-empty (e.g. generated before the recipe
+// library was populated for that meal type).
+router.get('/plans', requireAuth, (req, res) => {
+  const uid = userIdOf(req);
+  const plans = db.prepare(`
+    SELECT p.id, p.start_date, p.status, p.total_cost, p.created_at,
+           (SELECT COUNT(*) FROM weekly_plan_items WHERE plan_id = p.id) AS slots,
+           (SELECT COUNT(*) FROM weekly_plan_items WHERE plan_id = p.id AND recipe_id IS NOT NULL) AS filled
+      FROM weekly_plans p
+     WHERE p.user_id = ?
+     ORDER BY p.id DESC
+  `).all(uid);
+  res.render('plans_list', { title: 'All plans', plans });
+});
+
+// Delete a plan. ON DELETE CASCADE on weekly_plan_items.plan_id handles
+// cleanup of the per-day slot rows automatically. Ownership is enforced
+// by user_id in the WHERE clause; a forged id from someone else's account
+// is a no-op.
+router.post('/plan/:id/delete', requireAuth, (req, res) => {
+  const uid = userIdOf(req);
+  const id = parseInt(req.params.id, 10);
+  if (Number.isInteger(id)) {
+    db.prepare('DELETE FROM weekly_plans WHERE id = ? AND user_id = ?').run(id, uid);
+  }
+  res.redirect('/plans');
+});
+
 router.post('/planner/generate', requireAuth, (req, res) => {
   const uid = userIdOf(req);
   const p = household.profileForUser(uid);
