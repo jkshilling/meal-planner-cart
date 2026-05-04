@@ -4,19 +4,29 @@ const usda = require('./usda');
 
 // Walk a list of recipes (each must already have its `ingredients` array
 // populated) and attach computed per-serving nutrition by reading the
-// USDA cache. Mutates each recipe in place; missing-from-cache ingredients
-// contribute 0. Used everywhere we need r.calories / r.protein / r.fiber /
-// r.sugar / r.sodium for display or scoring — those used to be stored
-// columns but are now derived on read so unit-conversion / data fixes
-// propagate automatically without re-saving every recipe.
+// USDA cache. Mutates each recipe in place. Used everywhere we need
+// r.calories / r.protein / r.fiber / r.sugar / r.sodium for display or
+// scoring — those used to be stored columns but are now derived on read
+// so unit-conversion / data fixes propagate automatically without
+// re-saving every recipe.
+//
+// Coverage transparency: also writes r.nutrition_covered (count of
+// ingredients USDA matched) and r.nutrition_total (count of ingredients
+// in the recipe). Views check `covered < total` to render the values
+// as visibly partial rather than confidently exact — a recipe with
+// 3-of-5 ingredients matched gets a real number plus a (?) marker so
+// the user knows actual values may be ~40% higher.
 function attachNutrition(recipes) {
   for (const r of recipes) {
-    const n = usda.nutritionFromCache(r.ingredients || [], r.servings);
+    const ings = r.ingredients || [];
+    const n = usda.nutritionFromCache(ings, r.servings);
     r.calories = n ? n.calories : null;
     r.protein  = n ? n.protein  : null;
     r.fiber    = n ? n.fiber    : null;
     r.sugar    = n ? n.sugar    : null;
     r.sodium   = n ? n.sodium   : null;
+    r.nutrition_covered = n ? n.covered_ingredients : 0;
+    r.nutrition_total   = n ? n.total_ingredients   : ings.length;
   }
   return recipes;
 }
@@ -514,5 +524,6 @@ module.exports = {
   updateSlot,
   regenerateSlot,
   approvePlan,
-  dinersFor
+  dinersFor,
+  attachNutrition
 };

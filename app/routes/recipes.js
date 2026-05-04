@@ -3,7 +3,7 @@ const db = require('../db');
 const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
 const household = require('../services/household');
-const { loadProfile, dinersFor } = require('../services/planner');
+const { loadProfile, dinersFor, attachNutrition } = require('../services/planner');
 const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
@@ -63,6 +63,9 @@ router.get('/recipes', requireAuth, (req, res) => {
   // Attach ingredients + computed-from-cache nutrition to every recipe.
   // Nutrition is derived (no longer stored on recipes) so unit/USDA logic
   // changes propagate to the UI on next render — no save sweep required.
+  // Single SQL fetch for all ingredients across the user's recipes; then
+  // attachNutrition (shared with the planner) handles the per-recipe math
+  // and writes nutrition_covered/total so views can flag partial coverage.
   const allIds = recipes.map(r => r.id);
   if (allIds.length) {
     const placeholders = allIds.map(() => '?').join(',');
@@ -74,24 +77,10 @@ router.get('/recipes', requireAuth, (req, res) => {
     for (const ing of allIngs) {
       if (byRecipe[ing.recipe_id]) byRecipe[ing.recipe_id].ingredients.push(ing);
     }
-    for (const r of recipes) {
-      const n = usda.nutritionFromCache(r.ingredients, r.servings);
-      r.calories = n ? n.calories : null;
-      r.protein  = n ? n.protein  : null;
-      r.fiber    = n ? n.fiber    : null;
-      r.sugar    = n ? n.sugar    : null;
-      r.sodium   = n ? n.sodium   : null;
-    }
+    attachNutrition(recipes);
   }
   const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10), uid) : null;
-  if (editing) {
-    const n = usda.nutritionFromCache(editing.ingredients, editing.servings);
-    editing.calories = n ? n.calories : null;
-    editing.protein  = n ? n.protein  : null;
-    editing.fiber    = n ? n.fiber    : null;
-    editing.sugar    = n ? n.sugar    : null;
-    editing.sodium   = n ? n.sodium   : null;
-  }
+  if (editing) attachNutrition([editing]);
   const counts = {
     total: recipes.length,
     breakfast: recipes.filter(r => r.meal_type === 'breakfast').length,

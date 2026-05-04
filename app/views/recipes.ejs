@@ -55,18 +55,24 @@
       </p>
       <%
         // Initial values come from the server-side cache lookup (the GET
-        // handler ran nutritionFromCache for the editing recipe). Live
-        // edits update via JS + /recipes/nutrition-preview.
+        // handler ran attachNutrition for the editing recipe). Live edits
+        // update via JS + /recipes/nutrition-preview. When coverage is
+        // partial (covered < total) the values are real but undercounted —
+        // we render them italicized + with a (?) so it's not mistaken for
+        // an authoritative number.
         var initN = editing || {};
+        var covInit = initN.nutrition_covered || 0;
+        var totInit = initN.nutrition_total   || 0;
+        var partialInit = totInit > 0 && covInit < totInit;
         function nv(v) { return v == null ? '—' : v; }
-        function nvCls(v) { return v == null ? 'muted' : ''; }
       %>
-      <div class="row" id="nutrition-display" style="gap: 14px;">
-        <span><strong>Calories:</strong> <span id="n-calories" class="<%= nvCls(initN.calories) %>"><%= nv(initN.calories) %></span></span>
-        <span><strong>Protein:</strong> <span id="n-protein" class="<%= nvCls(initN.protein) %>"><%= nv(initN.protein) %></span> g</span>
-        <span><strong>Fiber:</strong> <span id="n-fiber" class="<%= nvCls(initN.fiber) %>"><%= nv(initN.fiber) %></span> g</span>
-        <span><strong>Sugar:</strong> <span id="n-sugar" class="<%= nvCls(initN.sugar) %>"><%= nv(initN.sugar) %></span> g</span>
-        <span><strong>Sodium:</strong> <span id="n-sodium" class="<%= nvCls(initN.sodium) %>"><%= nv(initN.sodium) %></span> mg</span>
+      <div class="row" id="nutrition-display" style="gap: 14px;"
+           data-partial="<%= partialInit ? '1' : '0' %>">
+        <span><strong>Calories:</strong> <span id="n-calories" class="<%= initN.calories == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.calories) %><% if (partialInit && initN.calories != null) { %> <span aria-label="partial">(?)</span><% } %></span></span>
+        <span><strong>Protein:</strong> <span id="n-protein" class="<%= initN.protein == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.protein) %></span> g</span>
+        <span><strong>Fiber:</strong> <span id="n-fiber" class="<%= initN.fiber == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.fiber) %></span> g</span>
+        <span><strong>Sugar:</strong> <span id="n-sugar" class="<%= initN.sugar == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.sugar) %></span> g</span>
+        <span><strong>Sodium:</strong> <span id="n-sodium" class="<%= initN.sodium == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.sodium) %></span> mg</span>
       </div>
       <span id="nutrition-status" class="muted tiny"></span>
     </fieldset>
@@ -182,7 +188,27 @@
             <% } %>
           </td>
           <td>$<%= r.est_cost.toFixed(2) %></td>
-          <td class="muted"><%= r.calories || '—' %></td>
+          <%
+            // Coverage transparency: when USDA didn't match every ingredient,
+            // the calorie count is silently undercounted. Render the partial
+            // value as italic + a "(?)" marker so the user knows. Tooltip
+            // explains the math + tells them to edit the recipe.
+            var covCal = r.nutrition_covered || 0;
+            var totCal = r.nutrition_total   || 0;
+            var partial = totCal > 0 && covCal < totCal;
+            var partialTip = partial
+              ? 'Only ' + covCal + ' of ' + totCal + ' ingredients matched USDA. Actual calories likely higher. Edit the recipe and check the live nutrition panel to see which ingredient is unmatched.'
+              : null;
+          %>
+          <td class="muted"<% if (partialTip) { %> title="<%= partialTip %>"<% } %>>
+            <% if (r.calories == null) { %>
+              —
+            <% } else if (partial) { %>
+              <em class="partial-nutrition"><%= r.calories %> <span aria-label="partial">(?)</span></em>
+            <% } else { %>
+              <%= r.calories %>
+            <% } %>
+          </td>
           <td class="actions">
             <a class="link" href="/recipes?edit=<%= r.id %>">edit</a>
             <form method="post" action="/recipes/<%= r.id %>/delete" class="delete-form" data-name="<%= r.name %>" style="display:inline">
@@ -328,17 +354,27 @@ function addIng() {
 // the time the user saves, the cache has data and the recipe list will
 // render correct nutrition immediately.
 var nutritionDebounceTimer = null;
-function setNutritionDisplay(values) {
+// `partial` means USDA didn't match every ingredient — the displayed
+// numbers are real but undercounted. Italicize via partial-nutrition class
+// and add a (?) marker on Calories so the user can spot it at a glance.
+function setNutritionDisplay(values, partial) {
   var fields = ['calories', 'protein', 'fiber', 'sugar', 'sodium'];
   fields.forEach(function(f) {
     var el = document.getElementById('n-' + f);
     if (!el) return;
     if (values && values[f] != null) {
-      el.textContent = values[f];
+      // Calories gets the (?) marker when partial; the others just italicize.
+      if (f === 'calories' && partial) {
+        el.innerHTML = String(values[f]) + ' <span aria-label="partial">(?)</span>';
+      } else {
+        el.textContent = values[f];
+      }
       el.classList.remove('muted');
+      el.classList.toggle('partial-nutrition', !!partial);
     } else {
       el.textContent = '—';
       el.classList.add('muted');
+      el.classList.remove('partial-nutrition');
     }
   });
 }
@@ -358,7 +394,7 @@ function refreshNutritionPreview() {
       unit: (unit && unit.value.trim()) || 'each'
     });
   });
-  if (!ingredients.length) { setNutritionDisplay(null); status.textContent = ''; return; }
+  if (!ingredients.length) { setNutritionDisplay(null, false); status.textContent = ''; return; }
   var servings = parseFloat(document.querySelector('input[name="servings"]').value) || 1;
   status.textContent = 'looking up…';
   fetch('/recipes/nutrition-preview', {
@@ -369,12 +405,15 @@ function refreshNutritionPreview() {
   .then(function(r) { return r.json(); })
   .then(function(data) {
     if (!data.ok || !data.nutrition) {
-      setNutritionDisplay(null);
+      setNutritionDisplay(null, false);
       status.textContent = 'no match' + (data.reason ? ' (' + data.reason + ')' : '');
       return;
     }
-    setNutritionDisplay(data.nutrition);
-    status.textContent = data.nutrition.covered_ingredients + '/' + data.nutrition.total_ingredients + ' ingredients matched';
+    var n = data.nutrition;
+    var partial = n.covered_ingredients < n.total_ingredients;
+    setNutritionDisplay(n, partial);
+    status.textContent = n.covered_ingredients + '/' + n.total_ingredients + ' ingredients matched'
+      + (partial ? ' — values are partial (likely undercounted).' : '');
   })
   .catch(function(e) { status.textContent = 'error: ' + e.message; });
 }
