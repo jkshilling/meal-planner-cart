@@ -240,12 +240,17 @@ function scoreFood(food, query) {
   return score;
 }
 
-// Single round-trip to USDA FoodData Central. Returns the FILTERED+SORTED
-// list of candidates so the caller can walk down the list with LLM-verify
-// (USDA's static scoring frequently picks a derivative product as #1
-// while the canonical entry is at #4 or #10 — e.g. "Bread, cinnamon" #1
-// vs "Spices, cinnamon, ground" #4 for query "cinnamon"). Throws on
-// transport errors.
+// Single round-trip to USDA FoodData Central. Returns the filtered list
+// of candidates in USDA's NATURAL relevance order — we used to re-sort by
+// our own scoreFood here, but that has a +3 nameRelevance bonus when the
+// query word appears in the first comma-segment, which pushes derivatives
+// like "Cinnamon buns, frosted" ahead of canonical entries like "Spices,
+// cinnamon, ground". USDA's own relevance order tends to put the
+// canonical near position 3-7, well within the verify walk. The static
+// scoreFood path is now only used for the no-LLM fallback (candidates[0]
+// directly out of USDA, which usually picks something reasonable).
+//
+// Throws on transport errors.
 async function fdcLookup(query) {
   const url = `${FDC_BASE}/foods/search?query=${encodeURIComponent(query)}`
     + `&dataType=${encodeURIComponent(FDC_DATA_TYPES.join(','))}`
@@ -265,36 +270,46 @@ async function fdcLookup(query) {
   //   2. Aren't branded prepared meals (CARRABBA'S, OLIVE GARDEN, etc.) —
   //      better to record no match than to use restaurant nutrition for
   //      an ingredient.
+  // Filter only — do NOT re-sort. USDA's order is the source of truth for
+  // the verify walk.
   const candidates = (data.foods || [])
     .filter(f => descContainsAllWords(f.description, query))
     .filter(f => !looksBranded(f.description || ''));
-  candidates.sort((a, b) => scoreFood(b, query) - scoreFood(a, query));
   return { rateLimited: false, candidates };
 }
 
 // Walk USDA's top candidates, asking the LLM to verify each. Returns the
-// first candidate that verify accepts, or null if every candidate (up to
+// first candidate verify accepts, or null if every candidate (up to
 // MAX_VERIFY) was explicitly rejected. A null verdict from the LLM
-// (network error / unparseable response) falls back to "trust USDA's
-// static scoring" — accept candidates[0] — so verify failures never make
-// the system worse than the no-LLM baseline.
+// (network error / unparseable response) falls back to "trust USDA" and
+// accepts candidates[0] — so verify failures never make the system worse
+// than the no-LLM baseline.
+//
+// MAX_VERIFY=10 is sized to reach USDA's canonical entries which sit at
+// position 3-7 for queries like "cinnamon" (Spices, cinnamon, ground at
+// position 3), "pepper" (Spices, pepper, black at position 6), and
+// covers queries where USDA returns 5+ varieties before the canonical.
 async function pickVerifiedCandidate(ingredientName, candidates) {
   if (!candidates || !candidates.length) return null;
   if (!llmCanonicalize.isEnabled()) return candidates[0];
-  const MAX_VERIFY = 5;
+  const MAX_VERIFY = 10;
   for (let i = 0; i < Math.min(MAX_VERIFY, candidates.length); i++) {
     const verdict = await llmCanonicalize.verifyMatch(ingredientName, candidates[i].description);
     if (verdict === true) return candidates[i];
     if (verdict === null) {
-      // Couldn't determine — fall back to USDA's static-scored top. Don't
-      // reject on LLM uncertainty; the original behavior was "trust USDA",
-      // and verify is a refinement, not a gate.
+      // Couldn't determine — fall back to USDA's #1. Don't reject on LLM
+      // uncertainty; verify is a refinement, not a gate.
       return candidates[0];
     }
-    // verdict === false → continue to next candidate
+    // verdict === false → continue
   }
-  // All candidates explicitly rejected. Return null so the caller can try
-  // the LLM-rewrite path before falling back to candidates[0].
+  // All explicitly rejected. Return null so the caller can try the
+  // LLM-rewrite path. We do NOT fall back to candidates[0] here because
+  // verify saying "no" 10 times is strong signal that USDA's data
+  // genuinely doesn't have a canonical entry for this name — accepting
+  // candidates[0] would silently cache a bad match (which is exactly
+  // the original cinnamon → "Cinnamon buns" bug). Better to record
+  // no-match so the user sees it in the Unmatched table and can rename.
   return null;
 }
 
@@ -339,7 +354,9 @@ async function searchFood(rawName) {
     let food = await pickVerifiedCandidate(ingredientName, initial.candidates);
 
     // STEP 2 — Verify rejected every candidate (or USDA returned nothing
-    // at all) → ask the LLM to rewrite the query and retry USDA once.
+    // at all) → ask the LLM to rewrite the query and retry USDA once. The
+    // retry's top candidate is trusted as-is (the rewrite itself encodes
+    // the LLM's judgement; we don't re-walk-with-verify on the retry).
     let llmSuggested = null;
     if (!food) {
       const suggested = await llmCanonicalize.suggestCanonical(ingredientName);
@@ -351,13 +368,11 @@ async function searchFood(rawName) {
       }
     }
 
-    // STEP 3 — Safety net. If verify rejected the whole candidate list
-    // AND the rewrite produced no match (or echoed the input), use USDA's
-    // original top candidate. Better an imperfect match than silently
-    // dropping ingredients that USDA actually had data for.
-    if (!food && initial.candidates.length) {
-      food = initial.candidates[0];
-    }
+    // No safety-net fallback to candidates[0]. If verify rejected all 10
+    // AND the rewrite didn't produce a different match, no-match is the
+    // correct outcome — accepting USDA's #1 in this case is exactly the
+    // original cinnamon-buns / banana-pepper bug. The user sees the name
+    // in the Unmatched table on the settings page and can rename it.
 
     const nutrients = food ? extractNutrients(food) : {
       calories_per_100g: null, protein_per_100g: null,
