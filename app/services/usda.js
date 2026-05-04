@@ -12,6 +12,7 @@
 // and put it in .env as USDA_API_KEY=...
 
 const db = require('../db');
+const llmCanonicalize = require('./llm_canonicalize');
 
 const FDC_BASE = 'https://api.nal.usda.gov/fdc/v1';
 const FDC_DATA_TYPES = ['Foundation', 'SR Legacy'];
@@ -239,10 +240,46 @@ function scoreFood(food, query) {
   return score;
 }
 
+// Single round-trip to USDA FoodData Central. Returns the best-scoring
+// candidate, or null if FDC has nothing usable. Throws on transport errors
+// so the caller can decide whether to swallow or escalate.
+async function fdcLookup(query) {
+  const url = `${FDC_BASE}/foods/search?query=${encodeURIComponent(query)}`
+    + `&dataType=${encodeURIComponent(FDC_DATA_TYPES.join(','))}`
+    + `&requireAllWords=true`
+    + `&pageSize=25&api_key=${apiKey()}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    // 429 = rate-limited; signal to the caller so it can decline to poison
+    // the cache.
+    if (res.status === 429) return { rateLimited: true, food: null };
+    throw new Error(`FDC ${res.status}`);
+  }
+  const data = await res.json();
+  // Filter to candidates that:
+  //   1. Actually contain every query word in the description (FDC's
+  //      requireAllWords sometimes lets partial-stem matches through)
+  //   2. Aren't branded prepared meals (CARRABBA'S, OLIVE GARDEN, etc.) —
+  //      better to record no match than to use restaurant nutrition for
+  //      an ingredient.
+  const candidates = (data.foods || [])
+    .filter(f => descContainsAllWords(f.description, query))
+    .filter(f => !looksBranded(f.description || ''));
+  candidates.sort((a, b) => scoreFood(b, query) - scoreFood(a, query));
+  return { rateLimited: false, food: candidates[0] || null };
+}
+
 // Hit FDC, return the best-match nutrition for an ingredient name, or null.
 // Caches successful AND empty results so we don't repeatedly retry failures.
 // Cache key is the CLEANED ingredient name, so "chopped tomatoes",
 // "diced tomatoes", and "tomatoes" all share one cache entry.
+//
+// On a hard miss (FDC returns zero candidates for the canonical name), we
+// optionally ask an LLM (services/llm_canonicalize) for a USDA-friendlier
+// rewrite and retry FDC once with that. The LLM is silently skipped if no
+// OPENAI_API_KEY is configured. Either way the final result — match or
+// no-match — is cached under the ORIGINAL canonical key so we never run
+// this dance twice for the same input.
 async function searchFood(rawName) {
   const ingredientName = canonicalize(rawName);
   if (!ingredientName) return null;
@@ -251,28 +288,23 @@ async function searchFood(rawName) {
   if (cached) return cached;
 
   try {
-    const url = `${FDC_BASE}/foods/search?query=${encodeURIComponent(ingredientName)}`
-      + `&dataType=${encodeURIComponent(FDC_DATA_TYPES.join(','))}`
-      + `&requireAllWords=true`
-      + `&pageSize=25&api_key=${apiKey()}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      // 429 = rate-limited, don't poison the cache
-      if (res.status === 429) return null;
-      throw new Error(`FDC ${res.status}`);
+    let { rateLimited, food } = await fdcLookup(ingredientName);
+    if (rateLimited) return null;  // don't poison the cache; try again next render
+
+    let llmSuggested = null;
+    // LLM fallback: only if the canonical name had no FDC match. The LLM
+    // call is a no-op when OPENAI_API_KEY isn't set, so this path is safe
+    // to leave wired up unconditionally.
+    if (!food) {
+      const suggested = await llmCanonicalize.suggestCanonical(ingredientName);
+      if (suggested && suggested !== ingredientName) {
+        llmSuggested = suggested;
+        const retry = await fdcLookup(suggested);
+        if (retry.rateLimited) return null;
+        food = retry.food;
+      }
     }
-    const data = await res.json();
-    // Filter to candidates that:
-    //   1. Actually contain every query word in the description (FDC's
-    //      requireAllWords sometimes lets partial-stem matches through)
-    //   2. Aren't branded prepared meals (CARRABBA'S, OLIVE GARDEN, etc.) —
-    //      better to record no match than to use restaurant nutrition for
-    //      an ingredient.
-    const candidates = (data.foods || [])
-      .filter(f => descContainsAllWords(f.description, ingredientName))
-      .filter(f => !looksBranded(f.description || ''));
-    candidates.sort((a, b) => scoreFood(b, ingredientName) - scoreFood(a, ingredientName));
-    const food = candidates[0] || null;
+
     const nutrients = food ? extractNutrients(food) : {
       calories_per_100g: null, protein_per_100g: null,
       fiber_per_100g: null, sugar_per_100g: null, sodium_per_100g: null
@@ -282,22 +314,24 @@ async function searchFood(rawName) {
       matched_description: food ? food.description : null,
       data_type: food ? food.dataType : null,
       fdc_id: food ? food.fdcId : null,
+      llm_suggested_name: llmSuggested,
       ...nutrients
     };
     db.prepare(`INSERT INTO nutrition_lookups
-      (ingredient_name, matched_description, data_type, fdc_id,
+      (ingredient_name, matched_description, data_type, fdc_id, llm_suggested_name,
        calories_per_100g, protein_per_100g, fiber_per_100g, sugar_per_100g, sodium_per_100g)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(ingredient_name) DO UPDATE SET
         matched_description = excluded.matched_description,
         data_type = excluded.data_type,
         fdc_id = excluded.fdc_id,
+        llm_suggested_name = excluded.llm_suggested_name,
         calories_per_100g = excluded.calories_per_100g,
         protein_per_100g = excluded.protein_per_100g,
         fiber_per_100g = excluded.fiber_per_100g,
         sugar_per_100g = excluded.sugar_per_100g,
         sodium_per_100g = excluded.sodium_per_100g`)
-      .run(row.ingredient_name, row.matched_description, row.data_type, row.fdc_id,
+      .run(row.ingredient_name, row.matched_description, row.data_type, row.fdc_id, row.llm_suggested_name,
            row.calories_per_100g, row.protein_per_100g, row.fiber_per_100g, row.sugar_per_100g, row.sodium_per_100g);
     return row;
   } catch (e) {

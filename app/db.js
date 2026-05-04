@@ -442,6 +442,15 @@ ensureColumn('household_members', 'packed_recipe_ids_json',   `TEXT NOT NULL DEF
 // manual import route to dedupe on re-import. Stringified — Spoonacular IDs
 // are integers but we don't want to assume that for future sources.
 ensureColumn('recipes', 'source_id', 'TEXT');
+
+// Audit column for the LLM-canonicalize fallback (services/llm_canonicalize).
+// When services/usda.searchFood gets zero FDC candidates for an ingredient
+// name, it asks the LLM for a USDA-friendlier rewrite and retries with that.
+// This column records the rewrite the LLM proposed (NULL means the LLM was
+// not consulted, either because the first lookup hit or because no
+// OPENAI_API_KEY is configured). Useful for spot-checking the LLM's
+// judgement on the settings-page coverage card.
+ensureColumn('nutrition_lookups', 'llm_suggested_name', 'TEXT');
 // Partial index would be ideal here but SQLite UNIQUE-on-non-null is awkward
 // to retrofit cleanly. Plain index gives us the lookup speed without the
 // uniqueness guarantee — duplicate detection happens in app code which can
