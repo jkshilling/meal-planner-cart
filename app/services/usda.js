@@ -481,22 +481,37 @@ function gramsPerCupFor(name) {
 // Per-each weight in grams. For ingredients sold by the unit ("1 banana",
 // "2 eggs"). Falls back to 100g if unknown — gives a number rather than
 // ignoring the ingredient entirely.
+//
+// Word boundaries (\b) on every regex matter: without them /can(?:ned)?/
+// matched the substring "can" inside "ameri{can} cheese" and shipped 425g
+// per "each" (a whole can of beans!) instead of falling through to the
+// slice-aware delegation below. Same risk on /apple/ matching "applesauce",
+// /onion/ matching "onion powder", etc. — all anchored now.
 const PER_EACH = [
-  [/egg(?!plant)/, 50], [/banana/, 120], [/apple/, 180], [/orange/, 130],
-  [/lemon|lime/, 60], [/onion/, 110], [/garlic clove|clove/, 5],
-  [/tomato(?!.*sauce|.*paste)/, 120], [/cherry tomato/, 17],
-  [/bell pepper|pepper(?!.*flake|.*powder)/, 120], [/zucchini/, 200],
-  [/cucumber/, 200], [/carrot/, 60], [/potato(?!.*sweet)/, 170],
-  [/sweet potato/, 130], [/avocado/, 200],
-  [/chicken breast/, 170], [/chicken thigh/, 110],
-  [/tortilla/, 30], [/bread.*slice|slice.*bread/, 30],
-  [/bagel|english muffin|biscuit/, 90], [/dinner roll|hamburger bun|hot dog bun/, 50],
-  [/celery.*stalk|stalk.*celery/, 40],
-  [/can(?:ned)?/, 425], [/jar/, 680], [/package|package/, 200], [/loaf/, 450]
+  [/\begg\b(?!plant)/, 50], [/\bbanana\b/, 120], [/\bapple\b(?!sauce)/, 180], [/\borange\b/, 130],
+  [/\b(?:lemon|lime)\b/, 60], [/\bonion\b(?!\s*powder|\s*flake)/, 110], [/\b(?:garlic clove|clove)\b/, 5],
+  [/\btomato\b(?!.*sauce|.*paste)/, 120], [/\bcherry tomato\b/, 17],
+  [/\bbell pepper\b|\bpepper\b(?!.*flake|.*powder|.*black|.*white|.*ground)/, 120], [/\bzucchini\b/, 200],
+  [/\bcucumber\b/, 200], [/\bcarrot\b/, 60], [/\bpotato\b(?!.*sweet)/, 170],
+  [/\bsweet potato\b/, 130], [/\bavocado\b/, 200],
+  [/\bchicken breast\b/, 170], [/\bchicken thigh\b/, 110],
+  [/\btortilla\b/, 30],
+  [/\b(?:bagel|english muffin|biscuit)\b/, 90], [/\b(?:dinner roll|hamburger bun|hot dog bun)\b/, 50],
+  [/\bcelery\b.*\bstalk\b|\bstalk\b.*\bcelery\b/, 40],
+  [/\bcan(?:ned)?\b/, 425], [/\bjar\b/, 680], [/\bpackage\b/, 200], [/\bloaf\b/, 450]
 ];
+
+// Foods that are almost always counted by the slice in recipes even when
+// the unit is "each" (a recipe saying "2 each bread" means 2 slices, not
+// 2 loaves). Delegate to gramsPerSliceFor so the slice-weights table
+// (bread=30g, american cheese=21g, bacon=10g) drives the answer. Without
+// this, "2 each bread" + "2 each american cheese" was producing 1666 cal
+// per serving for a grilled cheese instead of ~150.
+const SLICED_FOOD_RE = /\b(bread|toast|baguette|brioche|sourdough|rye|pumpernickel|whole.?wheat|cheese|cheddar|provolone|swiss|mozzarella|monterey|colby|havarti|gouda|american|bacon|ham|prosciutto|deli|pepperoni|salami|pickle)\b/;
 
 function gramsPerEachFor(name) {
   const n = (name || '').toLowerCase();
+  if (SLICED_FOOD_RE.test(n)) return gramsPerSliceFor(name);
   for (const [re, grams] of PER_EACH) if (re.test(n)) return grams;
   return 100;  // generic fallback
 }
