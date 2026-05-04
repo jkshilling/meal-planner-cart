@@ -315,6 +315,33 @@ function gramsPerEachFor(name) {
   return 100;  // generic fallback
 }
 
+// Per-slice weights. Used when unit is "slice" / "slices" — these are very
+// different from generic each-units (a slice of bread is 30g, but treating
+// it as "each" with the 100g fallback over-counted nutrition by 3-7×). The
+// regexes match against the ingredient name (the unit is already known to
+// be a slice when this is called).
+const PER_SLICE = [
+  [/bread|toast|baguette|brioche|sourdough|rye|pumpernickel|whole.?wheat/, 30],
+  [/cheese|cheddar|provolone|swiss|mozzarella|monterey|colby|havarti|gouda|american/, 21],
+  [/bacon/, 10],
+  [/pepperoni|salami/, 4],
+  [/ham(?!burger)|deli|prosciutto/, 28],
+  [/turkey|chicken/, 25],
+  [/tomato/, 20],
+  [/onion/, 15],
+  [/cucumber/, 15],
+  [/lemon|lime|orange/, 30],
+  [/avocado/, 25],
+  [/pickle/, 8],
+  [/apple|pear/, 20]
+];
+
+function gramsPerSliceFor(name) {
+  const n = (name || '').toLowerCase();
+  for (const [re, grams] of PER_SLICE) if (re.test(n)) return grams;
+  return 30;  // generic slice fallback (bread-ish)
+}
+
 function unitToGrams(quantity, unit, ingredientName) {
   if (!Number.isFinite(quantity) || quantity <= 0) return null;
   const u = (unit || '').toLowerCase().trim();
@@ -326,8 +353,15 @@ function unitToGrams(quantity, unit, ingredientName) {
   if (u === 'cup' || u === 'cups') return quantity * gramsPerCupFor(ingredientName);
   if (VOLUME_TO_GRAMS[u] != null) return quantity * VOLUME_TO_GRAMS[u];
 
+  // Slices have their own table — bread = 30g, sandwich cheese = 21g, etc.
+  // Lumping them into the generic each-bucket made "1 slice bread" and
+  // "1 whole bread" both = 100g, blowing up calories by 3-7×.
+  if (u === 'slice' || u === 'slices') {
+    return quantity * gramsPerSliceFor(ingredientName);
+  }
+
   // Each-style units.
-  if (['', 'each', 'piece', 'pieces', 'whole', 'large', 'medium', 'small', 'slice', 'slices',
+  if (['', 'each', 'piece', 'pieces', 'whole', 'large', 'medium', 'small',
        'clove', 'cloves', 'stalk', 'stalks', 'leaf', 'leaves', 'sprig', 'sprigs',
        'can', 'cans', 'jar', 'jars', 'package', 'packages', 'pack', 'loaf', 'loaves',
        'head', 'heads', 'bunch'].includes(u)) {
