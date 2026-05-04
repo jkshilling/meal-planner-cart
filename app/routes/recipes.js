@@ -80,7 +80,13 @@ router.get('/recipes', requireAuth, (req, res) => {
     attachNutrition(recipes);
   }
   const editing = req.query.edit ? fetchRecipe(parseInt(req.query.edit, 10), uid) : null;
-  if (editing) attachNutrition([editing]);
+  if (editing) {
+    attachNutrition([editing]);
+    // Per-ingredient match status drives a ✓ / ✗ badge next to each
+    // ingredient row in the form, so the user can see at a glance which
+    // names USDA didn't recognize.
+    editing.ingredient_status = usda.ingredientMatchStatus(editing.ingredients);
+  }
   const counts = {
     total: recipes.length,
     breakfast: recipes.filter(r => r.meal_type === 'breakfast').length,
@@ -137,8 +143,13 @@ router.post('/recipes/nutrition-preview', requireAuth, express.json(), async (re
   const servings = parseInt((req.body && req.body.servings) || 1, 10) || 1;
   if (!ingredients.length) return res.json({ ok: false, reason: 'no ingredients' });
   try {
+    // recipeNutrition both computes and warms the USDA cache as a side
+    // effect — by the time it returns, every ingredient has a row in
+    // nutrition_lookups (matched or NULL). We can then read the per-row
+    // status to drive ✓ / ✗ badges next to each ingredient input.
     const nutrition = await usda.recipeNutrition(ingredients, servings);
-    res.json({ ok: true, nutrition });
+    const ingredient_status = usda.ingredientMatchStatus(ingredients);
+    res.json({ ok: true, nutrition, ingredient_status });
   } catch (e) {
     res.json({ ok: false, reason: e.message });
   }

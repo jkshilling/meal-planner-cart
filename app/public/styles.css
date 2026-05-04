@@ -302,6 +302,13 @@ legend {
    number shown is real but undercounted. Italicized + slightly faded so
    the user reads it as approximate. */
 .partial-nutrition { font-style: italic; color: #8a6a16; }
+
+/* Per-ingredient match status badges in the recipe edit form. ✓ for USDA
+   match (counts toward nutrition), ✗ for no match (silently ignored). */
+.ing-status { font-size: 14px; font-weight: 600; cursor: help; }
+.ing-matched { color: var(--sage-ink, #4f7d4f); }
+.ing-unmatched { color: var(--burgundy-ink, #a04444); }
+.ing-status-cell { width: 28px; text-align: center; }
 .tag.confirmed-mapping { background: var(--sage-soft); color: var(--sage-ink); }
 .tag.confidence-high { background: var(--sage-soft); color: var(--sage-ink); }
 .tag.confidence-medium { background: var(--amber-soft); color: #8a5a16; }

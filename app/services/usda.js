@@ -462,4 +462,35 @@ async function recipeNutrition(ingredients, servings) {
   };
 }
 
-module.exports = { searchFood, unitToGrams, recipeNutrition, nutritionFromCache };
+// Per-ingredient match status, in the same order as the input list. Three
+// possible values per slot:
+//   'matched'  — nutrition_lookups has a row with non-null per-100g values.
+//                The ingredient counts toward the recipe's nutrition.
+//   'no-match' — nutrition_lookups has a row with NULL values (USDA was
+//                queried but had no result for this name). Doesn't count.
+//   'pending'  — no row at all yet. Either USDA hasn't been queried for
+//                this name (brand-new ingredient typed in the edit form)
+//                or the cache is cold. Treated as "doesn't count" for
+//                display purposes.
+// Used by the recipe edit form to put a ✓ / ✗ next to each ingredient row
+// so the user can see exactly which entries USDA didn't recognize.
+function ingredientMatchStatus(ingredients) {
+  const db = require('../db');
+  const names = (ingredients || []).map(i => normalize(i.name));
+  if (!names.length) return [];
+  const placeholders = names.map(() => '?').join(',');
+  const rows = db.prepare(
+    `SELECT ingredient_name, calories_per_100g
+       FROM nutrition_lookups
+      WHERE ingredient_name IN (${placeholders})`
+  ).all(...names);
+  const byName = {};
+  for (const r of rows) byName[r.ingredient_name] = r;
+  return (ingredients || []).map(ing => {
+    const cached = byName[normalize(ing.name)];
+    if (!cached) return 'pending';
+    return cached.calories_per_100g != null ? 'matched' : 'no-match';
+  });
+}
+
+module.exports = { searchFood, unitToGrams, recipeNutrition, nutritionFromCache, ingredientMatchStatus };
