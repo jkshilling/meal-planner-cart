@@ -107,6 +107,76 @@ a:hover { color: var(--burgundy-ink); text-decoration: underline; }
   border-radius: 1px;
 }
 
+/* User menu — dropdown anchored under the username in the topnav. The
+   trigger looks like a nav link until you hover; clicking expands a panel
+   with the full email and the Sign out button. JS in header.ejs handles
+   open/close + outside-click / Escape dismissal. */
+.user-menu {
+  position: relative;
+  display: inline-block;
+  margin-left: 22px;
+}
+.user-menu-trigger {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink-soft);
+  padding: 4px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.user-menu-trigger:hover { color: var(--ink); background: rgba(0, 0, 0, 0.04); }
+.user-menu-trigger:focus-visible {
+  outline: 2px solid var(--sage);
+  outline-offset: 2px;
+}
+.user-menu-chevron {
+  font-size: 9px;
+  transition: transform 0.15s ease;
+}
+.user-menu.open .user-menu-trigger { color: var(--ink); background: rgba(0, 0, 0, 0.04); }
+.user-menu.open .user-menu-chevron { transform: rotate(180deg); }
+.user-menu-panel {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 200px;
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+  padding: 6px 0;
+  z-index: 50;
+}
+.user-menu.open .user-menu-panel { display: block; }
+.user-menu-email {
+  padding: 8px 14px 6px;
+  font-size: 12px;
+  color: var(--ink-muted);
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 4px;
+  word-break: break-all;
+}
+.user-menu-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  color: var(--ink);
+  padding: 8px 14px;
+  cursor: pointer;
+}
+.user-menu-item:hover { background: rgba(0, 0, 0, 0.04); }
+
 .footer {
   text-align: center;
   padding: 32px 20px;
