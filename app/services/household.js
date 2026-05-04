@@ -11,6 +11,7 @@
 const fs = require('fs');
 const path = require('path');
 const db = require('../db');
+const usda = require('./usda');
 
 const SPOONACULAR_SEED_PATH = path.join(__dirname, '..', '..', 'data', 'spoonacular-seed.json');
 
@@ -134,7 +135,7 @@ function copyFromOwnerLibrary(targetUserId, sourceUserId) {
   const excluded = excludedSourceIds();
   const sources = db.prepare(`
     SELECT id, name, meal_type, cuisine, prep_time, servings,
-           est_cost, calories, protein, fiber, sugar, sodium, notes, source_id
+           est_cost, notes, source_id
       FROM recipes
      WHERE user_id = ? AND source_id IS NOT NULL
   `).all(sourceUserId).filter(r => {
@@ -175,6 +176,10 @@ function importFromStagedJson(targetUserId) {
   if (!missing.length) return 0;
 
   // Map the JSON shape onto our column shape. Defaults match data/seed.js.
+  // Spoonacular's per-recipe nutrition (calories/protein/etc. on `r`) is
+  // intentionally ignored — nutrition is now derived from ingredients
+  // via nutrition_lookups, so we just stash the ingredients and the
+  // insertRecipesAndIngredients warm-up handles the rest.
   const recipeRows = missing.map(r => ({
     name: r.name || 'Untitled',
     meal_type: r.meal_type || 'dinner',
@@ -182,11 +187,6 @@ function importFromStagedJson(targetUserId) {
     prep_time: r.prep_time || 30,
     servings: r.servings || 4,
     est_cost: typeof r.est_cost === 'number' ? r.est_cost : 10,
-    calories: r.calories ?? null,
-    protein:  r.protein  ?? null,
-    fiber:    r.fiber    ?? null,
-    sugar:    r.sugar    ?? null,
-    sodium:   r.sodium   ?? null,
     notes:    r.notes || null,
     source_id: String(r.source_id),
     _ings: (r.ingredients || []).map(ing => ({
@@ -236,31 +236,46 @@ function excludeFromMasterLibrary(sourceId, reason) {
 // Shared insert pipeline. `rows` is an array of objects with the recipe
 // columns plus whatever the `getIngredients` callback expects to consume.
 // Wrapped in a transaction so a partial failure doesn't half-insert.
+//
+// After the transaction commits, fires off USDA cache-warming for every
+// distinct ingredient name across the inserted recipes. Fire-and-forget —
+// returns immediately, the cache fills up over the next few seconds. This
+// is what makes the recipe list show full nutrition coverage on first
+// render after a cron import or signup-time seed; without it, all those
+// recipes would render with the partial-coverage marker until something
+// else (manual save, edit-form preview) forced individual lookups.
 function insertRecipesAndIngredients(userId, rows, getIngredients) {
   const insertRecipe = db.prepare(`
     INSERT INTO recipes
       (name, meal_type, cuisine, prep_time, servings, est_cost,
-       calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+       favorite, notes, user_id, source_id)
+    VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `);
   const insertIng = db.prepare(
     'INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)'
   );
+  const allIngsForWarm = [];
   const tx = db.transaction(() => {
     for (const r of rows) {
       const info = insertRecipe.run(
         r.name, r.meal_type, r.cuisine,
         r.prep_time, r.servings, r.est_cost,
-        r.calories, r.protein, r.fiber, r.sugar, r.sodium,
         r.notes, userId, r.source_id
       );
       const ings = getIngredients(r) || [];
       for (const ing of ings) {
         insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
+        allIngsForWarm.push(ing);
       }
     }
   });
   tx();
+  // Fire-and-forget USDA warm so nutrition_lookups gets populated for any
+  // new ingredient names. Recipe inserts don't wait on this; the cache
+  // catches up async.
+  if (allIngsForWarm.length) {
+    usda.recipeNutrition(allIngsForWarm, 1).catch(() => {});
+  }
   return rows.length;
 }
 
