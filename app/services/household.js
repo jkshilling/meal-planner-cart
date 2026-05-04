@@ -8,7 +8,11 @@
 //   2. createHouseholdForUser — for fresh users with no existing data to
 //      claim. Creates a blank household with a default "Me" member.
 
+const fs = require('fs');
+const path = require('path');
 const db = require('../db');
+
+const SPOONACULAR_SEED_PATH = path.join(__dirname, '..', '..', 'data', 'spoonacular-seed.json');
 
 function claimOrphanedHouseholds(userId, email) {
   // BOOTSTRAP_OWNER_EMAIL gate: in production, set this to the email that
@@ -77,86 +81,154 @@ function createHouseholdForUser(userId) {
   return info.lastInsertRowid;
 }
 
-// Sync the bootstrap owner's Spoonacular-imported recipes (those with
-// source_id set) into a target user's library. Used both for the initial
-// seed at signup AND the explicit "re-sync from master library" button on
-// settings — same code path, idempotent.
+// Sync Spoonacular-sourced recipes (those with source_id set) into a target
+// user's library. Used both for the initial seed at signup AND the explicit
+// "re-sync from master library" button on settings — same code path,
+// idempotent.
 //
-// What it does:
-//   - For each recipe in the owner's library where source_id IS NOT NULL,
-//     deep-copy it (recipe row + all recipe_ingredients) into the target
-//     user's library, but ONLY if the target doesn't already have a
-//     recipe with that source_id.
-//   - Skips entirely (zero work) for recipes the user already has, so
-//     re-running is safe and produces no duplicates.
-//   - The `favorite` flag is always reset to 0 on the copy. Favorites
-//     are personal taste; inheriting the owner's favorites would be wrong.
+// Dispatches based on whether the target user is the bootstrap owner:
+//   - Non-owner → deep-copy any source_id-bearing recipes from the owner's
+//     library that the user doesn't already have. (The owner's library IS
+//     the master library for everyone else.)
+//   - Owner → restore from data/spoonacular-seed.json. The owner's own
+//     library can't be its own source of truth (deleted recipes are gone),
+//     but the JSON file is an append-only audit log of every recipe the
+//     nightly cron has ever pulled. So the owner's "master library" is
+//     effectively the JSON, and re-sync brings back anything they deleted.
 //
-// What it does NOT do:
-//   - Touch hand-entered recipes (source_id NULL is invisible to this
-//     entire query — both the owner's and the user's stay completely
-//     untouched).
-//   - Modify the user's existing copies of recipes (edits, customized
-//     ingredients, custom calories — all preserved).
-//   - Delete anything, ever.
+// What it never does:
+//   - Touch hand-entered recipes (source_id NULL is invisible to every
+//     query/JSON entry this code uses).
+//   - Modify the user's existing copies of recipes — edits, customized
+//     ingredients, custom calories all preserved. Dedup is by source_id
+//     so we never overwrite anything.
+//   - Reset favorites on existing recipes. (Newly-inserted copies do start
+//     with favorite=0; favorites are personal taste, not inherited.)
+//   - Delete anything.
 //
 // Returns the number of recipes newly added in this sync. No-ops (returns 0)
 // when:
 //   - BOOTSTRAP_OWNER_EMAIL is unset
 //   - the owner doesn't exist yet
-//   - the owner is the same as the target user
-//   - the owner has no source_id-bearing recipes the user is missing
+//   - non-owner case: owner has no source_id-bearing recipes the user lacks
+//   - owner case: spoonacular-seed.json is missing/empty, OR the owner
+//     already has every source_id in the JSON
 function seedRecipesForUser(userId) {
   const ownerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL || '').toLowerCase().trim();
   if (!ownerEmail) return 0;
   const owner = db.prepare('SELECT id FROM users WHERE email = ?').get(ownerEmail);
-  if (!owner || owner.id === userId) return 0;
+  if (!owner) return 0;
 
-  // Recipes the user already has, by source_id. We dedup against this so
-  // re-running the sync (or running it after a partial signup) is safe.
-  const have = new Set(
-    db.prepare(
-      'SELECT source_id FROM recipes WHERE user_id = ? AND source_id IS NOT NULL'
-    ).all(userId).map(r => String(r.source_id))
-  );
+  return owner.id === userId
+    ? importFromStagedJson(userId)
+    : copyFromOwnerLibrary(userId, owner.id);
+}
 
+// Copy any of source_user's source_id-bearing recipes into target_user that
+// target_user doesn't already have. Deep copy: row + recipe_ingredients,
+// favorite reset to 0 on the new row.
+function copyFromOwnerLibrary(targetUserId, sourceUserId) {
+  const have = userSourceIds(targetUserId);
   const sources = db.prepare(`
     SELECT id, name, meal_type, cuisine, kid_friendly, prep_time, servings,
            est_cost, calories, protein, fiber, sugar, sodium, notes, source_id
       FROM recipes
      WHERE user_id = ? AND source_id IS NOT NULL
-  `).all(owner.id).filter(r => !have.has(String(r.source_id)));
+  `).all(sourceUserId).filter(r => !have.has(String(r.source_id)));
   if (!sources.length) return 0;
 
+  const selectIngs = db.prepare(
+    'SELECT name, quantity, unit FROM recipe_ingredients WHERE recipe_id = ?'
+  );
+  return insertRecipesAndIngredients(targetUserId, sources, (r) => selectIngs.all(r.id));
+}
+
+// Read data/spoonacular-seed.json (an append-only cache of every recipe the
+// nightly Spoonacular cron has pulled) and insert any source_ids the target
+// user is missing. The JSON IS the master library when the owner re-syncs
+// against themselves — the owner's currently-deleted recipes are still in
+// there. Format matches what fetch-seed.js writes; same shape data/seed.js
+// expects.
+function importFromStagedJson(targetUserId) {
+  if (!fs.existsSync(SPOONACULAR_SEED_PATH)) return 0;
+  let staged;
+  try {
+    staged = JSON.parse(fs.readFileSync(SPOONACULAR_SEED_PATH, 'utf8'));
+  } catch (e) {
+    return 0;
+  }
+  if (!Array.isArray(staged) || !staged.length) return 0;
+
+  const have = userSourceIds(targetUserId);
+  const missing = staged.filter(
+    r => r.source_id != null && !have.has(String(r.source_id))
+  );
+  if (!missing.length) return 0;
+
+  // Map the JSON shape onto our column shape. Defaults match data/seed.js.
+  const recipeRows = missing.map(r => ({
+    name: r.name || 'Untitled',
+    meal_type: r.meal_type || 'dinner',
+    cuisine: r.cuisine || null,
+    kid_friendly: r.kid_friendly ? 1 : 0,
+    prep_time: r.prep_time || 30,
+    servings: r.servings || 4,
+    est_cost: typeof r.est_cost === 'number' ? r.est_cost : 10,
+    calories: r.calories ?? null,
+    protein:  r.protein  ?? null,
+    fiber:    r.fiber    ?? null,
+    sugar:    r.sugar    ?? null,
+    sodium:   r.sodium   ?? null,
+    notes:    r.notes || null,
+    source_id: String(r.source_id),
+    _ings: (r.ingredients || []).map(ing => ({
+      name: ing.name,
+      quantity: typeof ing.quantity === 'number' && ing.quantity > 0 ? ing.quantity : 1,
+      unit: ing.unit || 'each'
+    }))
+  }));
+
+  return insertRecipesAndIngredients(targetUserId, recipeRows, (r) => r._ings);
+}
+
+// Set of source_ids the user already owns. Used to dedupe both code paths.
+function userSourceIds(userId) {
+  return new Set(
+    db.prepare(
+      'SELECT source_id FROM recipes WHERE user_id = ? AND source_id IS NOT NULL'
+    ).all(userId).map(r => String(r.source_id))
+  );
+}
+
+// Shared insert pipeline. `rows` is an array of objects with the recipe
+// columns plus whatever the `getIngredients` callback expects to consume.
+// Wrapped in a transaction so a partial failure doesn't half-insert.
+function insertRecipesAndIngredients(userId, rows, getIngredients) {
   const insertRecipe = db.prepare(`
     INSERT INTO recipes
       (name, meal_type, cuisine, kid_friendly, prep_time, servings, est_cost,
        calories, protein, fiber, sugar, sodium, favorite, notes, user_id, source_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
   `);
-  const selectIngs = db.prepare(
-    'SELECT name, quantity, unit FROM recipe_ingredients WHERE recipe_id = ?'
-  );
   const insertIng = db.prepare(
     'INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)'
   );
-
   const tx = db.transaction(() => {
-    for (const r of sources) {
+    for (const r of rows) {
       const info = insertRecipe.run(
         r.name, r.meal_type, r.cuisine, r.kid_friendly,
         r.prep_time, r.servings, r.est_cost,
         r.calories, r.protein, r.fiber, r.sugar, r.sodium,
         r.notes, userId, r.source_id
       );
-      const ings = selectIngs.all(r.id);
+      const ings = getIngredients(r) || [];
       for (const ing of ings) {
         insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
       }
     }
   });
   tx();
-  return sources.length;
+  return rows.length;
 }
 
 // Find the active household profile for a logged-in user. Returns null

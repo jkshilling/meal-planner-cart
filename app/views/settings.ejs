@@ -137,14 +137,14 @@
     <strong><%= libraryCounts.total - libraryCounts.fromMaster %></strong> hand-entered).
   </p>
   <p class="muted">
-    The "master library" is the bootstrap owner's collection of Spoonacular-imported
-    recipes — everything that comes in via the nightly Spoonacular pull. New users
-    get a snapshot of it at signup; clicking below pulls in any recipes that have
-    been added to the master library since you signed up. <strong>Re-sync is
-    purely additive</strong>: your existing recipes (including ones you've edited)
-    won't be touched, and your hand-entered recipes are completely invisible to
-    this. Note: if you previously deleted a master-library recipe, re-sync will
-    add it back — just delete it again if you don't want it.
+    The "master library" is the running collection of Spoonacular-imported
+    recipes — everything the nightly cron has ever pulled. New users get a
+    snapshot of it at signup. Clicking below pulls in anything you don't
+    currently have, including recipes you previously deleted (re-sync has no
+    memory of intentional deletions — just delete it again if you don't want
+    it). <strong>Re-sync is purely additive</strong>: your existing recipes,
+    including any you've edited, are never touched. Hand-entered recipes are
+    invisible to this code path.
   </p>
   <form method="post" action="/settings/recipes/resync" style="display:inline">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
