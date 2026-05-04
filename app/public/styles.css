@@ -201,6 +201,11 @@ a:hover { color: var(--burgundy-ink); text-decoration: underline; }
 
 .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px; }
 .grid.two { grid-template-columns: 1fr 1.25fr; }
+/* Notes textarea on the recipe-edit form sits next to the Ingredients
+   table in a 2-column grid. Stretch it to fill the column height so the
+   form doesn't have a stubby textarea floating beside a tall table. */
+.recipe-notes-label { display: flex; flex-direction: column; }
+.recipe-notes-textarea { flex: 1; min-height: 220px; resize: vertical; }
 .grid.two > .card { margin-bottom: 0; }
 @media (max-width: 820px) { .grid, .grid.two { grid-template-columns: 1fr; } }
 
