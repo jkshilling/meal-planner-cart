@@ -207,6 +207,22 @@ a:hover { color: var(--burgundy-ink); text-decoration: underline; }
 .recipe-notes-label { display: flex; flex-direction: column; }
 .recipe-notes-textarea { flex: 1; min-height: 220px; resize: vertical; }
 
+/* Recipe-edit nutrition panel. Uses a grid (not flex-wrap) so the seven
+   nutrient cells align in clean columns and don't orphan Sugar / Sodium
+   on a partially-filled second row with weird gaps. auto-fit + minmax
+   gives ~5-7 columns wide, 4 columns tablet, 2 columns mobile. */
+.nutrition-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  column-gap: 24px;
+  row-gap: 8px;
+  margin-bottom: 4px;
+}
+.nutrition-grid > span {
+  white-space: nowrap;
+  font-size: 14px;
+}
+
 /* Favorite checkbox sits in the same .row as the Prep / Servings / Cost
    label-over-input pairs. Without a spacer it floats to label-row height
    (top of the row) while the inputs sit below. The first <span> reserves

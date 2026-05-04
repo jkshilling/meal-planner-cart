@@ -77,7 +77,7 @@
         var partialInit = totInit > 0 && covInit < totInit;
         function nv(v) { return v == null ? '—' : v; }
       %>
-      <div class="row" id="nutrition-display" style="gap: 14px;"
+      <div class="nutrition-grid" id="nutrition-display"
            data-partial="<%= partialInit ? '1' : '0' %>">
         <span><strong>Calories:</strong> <span id="n-calories" class="<%= initN.calories == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.calories) %><% if (partialInit && initN.calories != null) { %> <span aria-label="partial">(?)</span><% } %></span></span>
         <span><strong>Protein:</strong> <span id="n-protein" class="<%= initN.protein == null ? 'muted' : (partialInit ? 'partial-nutrition' : '') %>"><%= nv(initN.protein) %></span> g</span>
