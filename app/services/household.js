@@ -297,5 +297,9 @@ module.exports = {
   createHouseholdForUser,
   seedRecipesForUser,
   excludeFromMasterLibrary,
-  profileForUser
+  profileForUser,
+  // Exported so one-shot scripts (data/pull-popular-sides.js etc.)
+  // can use the canonical insert + cache-warm pipeline instead of
+  // duplicating it inline.
+  insertRecipesAndIngredients
 };
