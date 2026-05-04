@@ -264,8 +264,13 @@ function insertRecipesAndIngredients(userId, rows, getIngredients) {
       );
       const ings = getIngredients(r) || [];
       for (const ing of ings) {
-        insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
-        allIngsForWarm.push(ing);
+        // Canonicalize before write so cron-imported and seed-replicated
+        // recipes land in recipe_ingredients with the same name USDA's
+        // cache is keyed on. Fallback keeps the original if canonicalize
+        // strips everything (defensive — shouldn't happen in practice).
+        const canonName = usda.canonicalize(ing.name) || ing.name;
+        insertIng.run(info.lastInsertRowid, canonName, ing.quantity, ing.unit);
+        allIngsForWarm.push({ ...ing, name: canonName });
       }
     }
   });

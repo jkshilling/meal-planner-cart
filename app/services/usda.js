@@ -43,15 +43,72 @@ const STRIP_WORDS = new Set([
   // sizes / quality grades
   'large', 'medium', 'small', 'baby', 'mini', 'jumbo', 'extra',
   // structural
-  'boneless', 'skinless', 'deboned', 'virgin'
+  'boneless', 'skinless', 'deboned', 'virgin',
+  // additional quality / fat-content / processing modifiers (added when the
+  // settings-page coverage card surfaced "regular olive oil", "non-fat milk",
+  // "cooking oats", etc. as unmatched).
+  'regular', 'premium', 'lite', 'light',
+  'non-fat', 'nonfat', 'low-fat', 'lowfat', 'reduced-fat', 'reducedfat',
+  'fat-free', 'fatfree', 'full-fat', 'fullfat',
+  'cooking', 'instant', 'quick', 'old-fashioned', 'oldfashioned',
+  'plain', 'unsweetened', 'sweetened', 'organic', 'natural'
 ]);
 
-function cleanQuery(s) {
+// Multi-word synonym substitutions, applied BEFORE the single-word strip.
+// Each entry: [regex, replacement]. Regex flags: global, case-insensitive.
+// These exist because USDA's Foundation Foods database uses canonical
+// short names ("parsley", "scallions", "mushrooms"), and Spoonacular /
+// human-typed recipes use kitchen-natural variants ("flat-leaf parsley",
+// "spring onions", "cremini mushrooms"). Without these aliases the long
+// form has no USDA match and silently drops out of the recipe's totals.
+const ALIASES = [
+  // Cheese variants → parmesan
+  [/\bparmigiano(?:[ -]reggiano)?(?:\s+cheese)?\b/gi, 'parmesan'],
+  // Mushroom varieties → mushrooms
+  [/\b(?:cremini|crimini|baby\s+bella|baby\s+bellas|portobello|portabella)\s+mushrooms?\b/gi, 'mushrooms'],
+  [/\b(?:cremini|crimini)\b/gi, 'mushrooms'],
+  // Onion synonyms → scallions
+  [/\b(?:spring|green)\s+onions?\b/gi, 'scallions'],
+  // Egg substitutes → egg
+  [/\begg\s+(?:replacement|substitute)s?\b/gi, 'egg'],
+  // Parsley variants → parsley
+  [/\b(?:flat[\s-]?leaf|italian)\s+parsley\b/gi, 'parsley'],
+  // "thyme leaves" / "rosemary leaves" / etc. → just the herb
+  [/\b(thyme|rosemary|sage|basil|oregano|mint|cilantro)\s+leaves\b/gi, '$1'],
+  // Sake variants
+  [/\bsaki\b/gi, 'sake'],
+  // Pepper / chili flake variants → red pepper
+  [/\b(?:red\s+)?(?:chili|chile)\s+flakes\b/gi, 'red pepper'],
+  [/\bpepper\s+flakes\b/gi, 'red pepper'],
+  // Measurement-ish noise prefixes — strip
+  [/\b(?:a\s+)?(?:dash(?:e?s)?|splash|pinch|sprig)\s+of\b/gi, '']
+];
+
+// The single shared canonical-name function. Used as the cache key in
+// nutrition_lookups (write side: searchFood; read side: nutritionFromCache
+// and ingredientMatchStatus), AND used by data/canonicalize-ingredients.js
+// to bulk-rename existing recipe_ingredients rows so the recipe edit pages
+// reflect the cleaned names.
+//
+// Pipeline: lowercase + collapse whitespace → multi-word alias substitution
+// → drop single-word noise tokens (STRIP_WORDS) → re-collapse whitespace.
+// Fall back to the lowercased original if every word got stripped.
+function canonicalize(rawName) {
+  let s = (rawName || '').toLowerCase().trim().replace(/\s+/g, ' ');
   if (!s) return '';
-  const cleaned = s.toLowerCase().split(/\s+/).filter(w => !STRIP_WORDS.has(w)).join(' ').trim();
-  // Fall back to the original if every word got stripped (e.g. "fresh") —
-  // better to search something dumb than nothing at all.
-  return cleaned || s.toLowerCase().trim();
+  for (const [pattern, replacement] of ALIASES) {
+    s = s.replace(pattern, replacement);
+  }
+  s = s.replace(/\s+/g, ' ').trim();
+  const stripped = s.split(' ').filter(w => w && !STRIP_WORDS.has(w)).join(' ').trim();
+  return stripped || s || (rawName || '').toLowerCase().trim();
+}
+
+// Backward-compat shim: cleanQuery used to be a separate stripping pass
+// applied AFTER normalize. It's now equivalent to canonicalize so the
+// search query and the cache key always agree.
+function cleanQuery(s) {
+  return canonicalize(s);
 }
 
 // Defensive backstop: even with FDC's requireAllWords param, sometimes a
@@ -187,7 +244,7 @@ function scoreFood(food, query) {
 // Cache key is the CLEANED ingredient name, so "chopped tomatoes",
 // "diced tomatoes", and "tomatoes" all share one cache entry.
 async function searchFood(rawName) {
-  const ingredientName = cleanQuery(normalize(rawName));
+  const ingredientName = canonicalize(rawName);
   if (!ingredientName) return null;
 
   const cached = db.prepare('SELECT * FROM nutrition_lookups WHERE ingredient_name = ?').get(ingredientName);
@@ -391,9 +448,10 @@ function nutritionFromCache(ingredients, servings) {
   if (!total) return null;
 
   // Batch-fetch every ingredient's cached row in one query instead of N
-  // round-trips. Keys are the same normalize(name) the searchFood path uses
-  // so the lookup hits.
-  const names = ingredients.map(i => normalize(i.name));
+  // round-trips. Keys are the canonicalize(name) form the searchFood path
+  // writes under so the lookup hits — "diced tomatoes", "tomatoes",
+  // "fresh tomatoes" all collapse to the same key "tomatoes".
+  const names = ingredients.map(i => canonicalize(i.name));
   if (!names.length) return null;
   const placeholders = names.map(() => '?').join(',');
   const cached = db.prepare(
@@ -408,7 +466,7 @@ function nutritionFromCache(ingredients, servings) {
   for (const ing of ingredients) {
     const grams = unitToGrams(ing.quantity, ing.unit, ing.name);
     if (!grams) continue;
-    const food = byName[normalize(ing.name)];
+    const food = byName[canonicalize(ing.name)];
     if (!food || food.calories_per_100g == null) continue;
     const factor = grams / 100;
     cal += (food.calories_per_100g || 0) * factor;
@@ -476,7 +534,7 @@ async function recipeNutrition(ingredients, servings) {
 // so the user can see exactly which entries USDA didn't recognize.
 function ingredientMatchStatus(ingredients) {
   const db = require('../db');
-  const names = (ingredients || []).map(i => normalize(i.name));
+  const names = (ingredients || []).map(i => canonicalize(i.name));
   if (!names.length) return [];
   const placeholders = names.map(() => '?').join(',');
   const rows = db.prepare(
@@ -487,10 +545,10 @@ function ingredientMatchStatus(ingredients) {
   const byName = {};
   for (const r of rows) byName[r.ingredient_name] = r;
   return (ingredients || []).map(ing => {
-    const cached = byName[normalize(ing.name)];
+    const cached = byName[canonicalize(ing.name)];
     if (!cached) return 'pending';
     return cached.calories_per_100g != null ? 'matched' : 'no-match';
   });
 }
 
-module.exports = { searchFood, unitToGrams, recipeNutrition, nutritionFromCache, ingredientMatchStatus };
+module.exports = { searchFood, unitToGrams, recipeNutrition, nutritionFromCache, ingredientMatchStatus, canonicalize };

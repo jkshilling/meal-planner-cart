@@ -24,8 +24,13 @@ function parseIngredients(body) {
   const units = [].concat(body.ing_unit || []);
   const out = [];
   for (let i = 0; i < names.length; i++) {
-    const name = (names[i] || '').trim();
-    if (!name) continue;
+    const raw = (names[i] || '').trim();
+    if (!raw) continue;
+    // Canonicalize so what lands in recipe_ingredients matches the cache
+    // key in nutrition_lookups. "regular olive oil" becomes "olive oil",
+    // "cremini mushrooms" becomes "mushrooms", etc. The fallback inside
+    // canonicalize() guarantees we never end up with an empty name.
+    const name = usda.canonicalize(raw) || raw;
     const qty = parseFloat(qtys[i]);
     out.push({
       name,
@@ -182,12 +187,18 @@ router.post('/recipes/import-online', requireAuth, async (req, res) => {
       .run(recipe.name, mealType, recipe.cuisine, recipe.prep_time, recipe.servings, recipe.est_cost,
            0, recipe.notes, uid, sourceId);
     const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
-    for (const ing of recipe.ingredients) {
+    // Canonicalize on the way in so Spoonacular-imported ingredients match
+    // nutrition_lookups keys without a follow-up rename pass.
+    const canonIngs = recipe.ingredients.map(ing => ({
+      ...ing,
+      name: usda.canonicalize(ing.name) || ing.name
+    }));
+    for (const ing of canonIngs) {
       insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
     }
     // Warm USDA cache for any new ingredient names so the next render of
     // the list/edit form has nutrition data to display.
-    warmNutritionCache(recipe.ingredients, recipe.servings);
+    warmNutritionCache(canonIngs, recipe.servings);
     return res.redirect('/recipes?edit=' + info.lastInsertRowid);
   } catch (e) {
     return res.redirect('/recipes?import_err=' + encodeURIComponent(e.message));
