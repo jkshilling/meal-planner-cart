@@ -88,7 +88,7 @@ async function importRecipe(recipe, tab) {
   }
   const btn = $('import-btn');
   btn.disabled = true;
-  btn.textContent = 'Importing…';
+  btn.textContent = 'Clipping…';
   try {
     const res = await fetch(`${apiBase}/api/recipes/import-nyt`, {
       method: 'POST',

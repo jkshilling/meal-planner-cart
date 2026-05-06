@@ -1,9 +1,9 @@
-# NYT Cooking → Meal Planner
+# Recipe Clipper
 
-One-click Chrome extension to import recipes from NYT Cooking into your
-Meal Planner library. Reads the schema.org Recipe JSON-LD that NYT
-publishes on every page (the same data Google indexes), no scraping
-needed.
+One-click Chrome extension that clips recipes from NYT Cooking (and any
+site publishing schema.org Recipe JSON-LD) into your Meal Planner
+library. Reads the structured data that sites publish for Google's
+recipe-card indexing — no scraping, no auth dance.
 
 ## Install (developer mode, one-time)
 
@@ -29,7 +29,7 @@ needed.
 2. On any recipe page, click the extension icon.
 3. The popup shows a preview (recipe name, prep time, ingredients count,
    category).
-4. Click **Import to Meal Planner**.
+4. Click **Clip recipe**.
 5. ~3-5 seconds later: confirmation. The recipe is in your library with
    ingredients parsed, USDA nutrition warming in the background, and
    `meal_type` set automatically (sides go to side, mains go to dinner,
