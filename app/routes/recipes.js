@@ -210,9 +210,15 @@ router.post('/recipes/:id/favorite', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
   const current = db.prepare('SELECT favorite FROM recipes WHERE id = ? AND user_id = ?').get(id, uid);
+  let newValue = null;
   if (current) {
-    db.prepare('UPDATE recipes SET favorite = ? WHERE id = ? AND user_id = ?')
-      .run(current.favorite ? 0 : 1, id, uid);
+    newValue = current.favorite ? 0 : 1;
+    db.prepare('UPDATE recipes SET favorite = ? WHERE id = ? AND user_id = ?').run(newValue, id, uid);
+  }
+  // AJAX clients get the new favorite state inline so the star can flip
+  // without a reload. Plain form submitters still get a redirect.
+  if ((req.get('Accept') || '').includes('application/json')) {
+    return res.json({ ok: current != null, favorite: newValue });
   }
   res.redirect(req.get('referer') || '/recipes');
 });
@@ -256,6 +262,9 @@ router.post('/recipes/:id/exclude', requireAuth, requireOwner, (req, res) => {
     db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
   });
   tx();
+  if ((req.get('Accept') || '').includes('application/json')) {
+    return res.status(204).end();
+  }
   if (req.session) {
     req.session.flash = {
       type: 'success',

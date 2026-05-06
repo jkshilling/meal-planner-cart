@@ -250,8 +250,7 @@
               <button class="link delete-link" type="submit">delete</button>
             </form>
             <% if (isOwner && r.source_id) { %>
-              <form method="post" action="/recipes/<%= r.id %>/exclude" class="exclude-form" data-name="<%= r.name %>" style="display:inline"
-                    onsubmit="return confirm('Exclude “<%= r.name %>” from the master library? This deletes your copy AND prevents it from being re-added to anyone's library on future re-syncs or signups. Existing copies in other users' libraries are not removed.');">
+              <form method="post" action="/recipes/<%= r.id %>/exclude" class="exclude-form" data-name="<%= r.name %>" style="display:inline">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
                 <button class="link delete-link" type="submit" title="Owner only: remove this recipe from the master library so it won't be re-seeded to anyone.">exclude</button>
               </form>
@@ -496,6 +495,95 @@ function scheduleNutritionRefresh() {
       .catch(function(err) {
         if (btn) { btn.disabled = false; btn.textContent = 'delete'; }
         alert('Delete failed: ' + err.message + '. Reload and try again.');
+      });
+    });
+  });
+
+  // Async favorite-toggle. Same motivation as delete: a redirect-based
+  // toggle reloads the page and dumps the user back to the top. Now: POST
+  // in the background, server returns the new value, JS flips the star
+  // and class in place + updates the Favorites tab count.
+  document.querySelectorAll('form[action$="/favorite"]').forEach(function(f) {
+    f.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var row = f.closest('tr');
+      var btn = f.querySelector('button.fav-btn');
+      if (!btn || !row) return;
+      btn.disabled = true;
+      fetch(f.action, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': window.__CSRF,
+          'Accept': 'application/json'
+        }
+      })
+      .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data) {
+        var on = data.favorite === 1;
+        btn.classList.toggle('on', on);
+        btn.textContent = on ? '★' : '☆';
+        row.dataset.favorite = on ? '1' : '0';
+        // Favorites tab count: increment when turning on, decrement otherwise.
+        var favTab = document.querySelector('.tab[data-meal="favorite"] .count');
+        if (favTab) {
+          var n = parseInt(favTab.textContent, 10) || 0;
+          favTab.textContent = String(Math.max(0, n + (on ? 1 : -1)));
+        }
+        // If the user is currently filtering by Favorites, an unfavorited
+        // row should disappear from view; apply() handles that.
+        apply();
+      })
+      .catch(function(err) {
+        alert('Favorite toggle failed: ' + err.message);
+      })
+      .finally(function() { btn.disabled = false; });
+    });
+  });
+
+  // Async exclude (owner only). Behaves like delete from the user's
+  // perspective: row vanishes, counts update, page stays put. Server-side
+  // also marks the recipe's source_id as excluded so it won't re-appear
+  // for any user on a future re-sync.
+  document.querySelectorAll('.exclude-form').forEach(function(f) {
+    f.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var name = f.dataset.name || 'this recipe';
+      if (!confirm('Exclude "' + name + '" from the master library? This deletes your copy AND prevents it from re-appearing in anyone’s library on future re-syncs or signups. Existing copies in other users’ libraries are not removed.')) return;
+      var row = f.closest('tr');
+      var meal = row && row.dataset.meal;
+      var wasFav = row && row.dataset.favorite === '1';
+      var btn = f.querySelector('button');
+      if (btn) { btn.disabled = true; btn.textContent = 'excluding…'; }
+      fetch(f.action, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': window.__CSRF,
+          'Accept': 'application/json'
+        }
+      })
+      .then(function(r) {
+        if (r.status !== 204 && !r.ok) throw new Error('HTTP ' + r.status);
+        var idx = rows.indexOf(row);
+        if (idx >= 0) rows.splice(idx, 1);
+        row.remove();
+        document.querySelectorAll('.tab').forEach(function(t) {
+          var key = t.dataset.meal;
+          var span = t.querySelector('.count');
+          if (!span) return;
+          var n = parseInt(span.textContent, 10) || 0;
+          var dec = (key === 'all') || (key === meal) || (key === 'favorite' && wasFav);
+          if (dec) span.textContent = String(Math.max(0, n - 1));
+        });
+        var headerBadge = document.querySelector('.count-badge');
+        if (headerBadge) {
+          var hn = parseInt(headerBadge.textContent, 10) || 0;
+          headerBadge.textContent = String(Math.max(0, hn - 1));
+        }
+        apply();
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'exclude'; }
+        alert('Exclude failed: ' + err.message + '. Reload and try again.');
       });
     });
   });
