@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Recipe Clipper",
+  "name": "NYT Recipe Clipper",
   "version": "0.1.0",
   "description": "One-click import recipes from NYT Cooking and other sites into your Meal Planner library.",
   "permissions": ["activeTab", "scripting", "storage"],

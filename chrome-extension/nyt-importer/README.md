@@ -1,4 +1,4 @@
-# Recipe Clipper
+# NYT Recipe Clipper
 
 One-click Chrome extension that clips recipes from NYT Cooking (and any
 site publishing schema.org Recipe JSON-LD) into your Meal Planner
