@@ -86,10 +86,13 @@ if [ ! -L "${NGINX_ENABLED}" ] || [ "$(readlink "${NGINX_ENABLED}")" != "${NGINX
   ln -sfn "${NGINX_AVAILABLE}" "${NGINX_ENABLED}"
 fi
 
-echo "=== [5/7] Installing cron job for daily Spoonacular pull ==="
-# Namespaced to /etc/cron.d/${APP_NAME}-fetch — never touches /etc/crontab
-# or other apps' cron files. Mode must be 0644 owned by root for cron.d.
-install -o root -g root -m 0644 "${APP_DIR}/deploy/${APP_NAME}-fetch.cron" "${CRON_FILE}"
+echo "=== [5/7] Removing Spoonacular pull cron (retired) ==="
+# The daily Spoonacular pull is retired — Spoonacular's data quality
+# (loose dishType tagging, weird recipe titles, dubious categorization)
+# made the auto-imported recipes more trouble than they were worth.
+# Active uninstall on every deploy so the cron stays gone if a stale
+# /etc/cron.d/${APP_NAME}-fetch survived from earlier deploys.
+rm -f "${CRON_FILE}"
 
 echo "=== [6/7] Validating nginx config ==="
 # This checks the entire nginx config. If it fails, we bail before reloading
