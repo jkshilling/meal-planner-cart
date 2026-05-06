@@ -41,14 +41,17 @@
       <span class="brand-text">Meal Planner</span>
     </div>
     <nav>
-      <a href="/">Dashboard</a>
-      <a href="/settings">Settings</a>
-      <a href="/recipes">Recipes</a>
-      <a href="/planner">Planner</a>
-      <a href="/shopping">Shopping List</a>
-      <a href="/grocery">Grocery</a>
-      <a href="/grocery/products">Catalog</a>
+      <%# Auth-gated nav links only render for logged-in users — every one %>
+      <%# of these routes redirects to /login otherwise, so showing them %>
+      <%# in the topnav of a logged-out page is misleading. %>
       <% if (currentUser) { %>
+        <a href="/">Dashboard</a>
+        <a href="/recipes">Recipes</a>
+        <a href="/planner">Planner</a>
+        <a href="/shopping">Shopping List</a>
+        <a href="/grocery">Grocery</a>
+        <a href="/grocery/products">Catalog</a>
+        <a href="/settings">Settings</a>
         <%# User menu — username trigger expands to reveal Sign out (and any %>
         <%# future per-account actions). Keeps the visible nav focused on %>
         <%# product navigation, not session housekeeping. Closes on outside %>

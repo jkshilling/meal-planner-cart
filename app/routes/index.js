@@ -6,7 +6,19 @@ const { requireAuth, userIdOf } = require('../services/auth');
 
 const router = express.Router();
 
-router.get('/', requireAuth, (req, res) => {
+// `/` serves two distinct things based on auth state:
+//   - logged out: a public landing page describing what the app does
+//     and prompting sign-in. Routes that require auth all redirect to
+//     /login already, so the landing exists primarily to give the URL
+//     a destination that isn't a login form.
+//   - logged in: the dashboard with profile + recipe count + latest plan.
+// Not gated by requireAuth so the public branch can render.
+router.get('/', (req, res) => {
+  const isLoggedIn = req.session && req.session.user && req.session.user.id;
+  if (!isLoggedIn) {
+    return res.render('landing', { title: 'Meal Planner' });
+  }
+
   const profile = household.profileForUser(userIdOf(req));
   if (!profile) {
     // Should never happen — signup creates a profile. If it does, the user's
