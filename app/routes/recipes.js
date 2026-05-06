@@ -221,6 +221,12 @@ router.post('/recipes/:id/delete', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   const uid = userIdOf(req);
   db.prepare('DELETE FROM recipes WHERE id = ? AND user_id = ?').run(id, uid);
+  // Content negotiation: AJAX clients (the JS on /recipes) get 204 so the
+  // page stays put and the row is removed in place. Plain form submitters
+  // (no JS, e.g. mobile fallback) still get the redirect.
+  if ((req.get('Accept') || '').includes('application/json')) {
+    return res.status(204).end();
+  }
   res.redirect('/recipes');
 });
 

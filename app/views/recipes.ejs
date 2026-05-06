@@ -438,11 +438,65 @@ function scheduleNutritionRefresh() {
   var sortDir = 1;            // 1 = asc, -1 = desc
   var sortNumeric = false;
 
-  // Confirm before delete — safely binds the recipe name at runtime.
+  // Async delete: confirm, POST in the background, on 204 remove the row
+  // in place + update the per-tab and total counts. Avoids the full-page
+  // reload that the redirect-based flow does, which dumps the user's
+  // scroll position back to the top.
   document.querySelectorAll('.delete-form').forEach(function(f) {
     f.addEventListener('submit', function(e) {
+      e.preventDefault();
       var name = f.dataset.name || 'this recipe';
-      if (!confirm('Delete "' + name + '"? This cannot be undone.')) e.preventDefault();
+      if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+
+      var row = f.closest('tr');
+      var meal = row && row.dataset.meal;
+      var wasFav = row && row.dataset.favorite === '1';
+      var btn = f.querySelector('button');
+      if (btn) { btn.disabled = true; btn.textContent = 'deleting…'; }
+
+      fetch(f.action, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-Token': window.__CSRF,
+          'Accept': 'application/json'
+        }
+      })
+      .then(function(r) {
+        if (r.status !== 204 && !r.ok) {
+          throw new Error('HTTP ' + r.status);
+        }
+        // Remove the row from both the DOM and our captured rows[] array
+        // so apply() / the visible counter stay accurate.
+        var idx = rows.indexOf(row);
+        if (idx >= 0) rows.splice(idx, 1);
+        row.remove();
+
+        // Decrement tab counts: All, the row's meal_type, and Favorites
+        // if the row was favorited.
+        document.querySelectorAll('.tab').forEach(function(t) {
+          var key = t.dataset.meal;
+          var span = t.querySelector('.count');
+          if (!span) return;
+          var n = parseInt(span.textContent, 10) || 0;
+          var dec = (key === 'all') || (key === meal) || (key === 'favorite' && wasFav);
+          if (dec) span.textContent = String(Math.max(0, n - 1));
+        });
+
+        // Update the header total badge.
+        var headerBadge = document.querySelector('.count-badge');
+        if (headerBadge) {
+          var hn = parseInt(headerBadge.textContent, 10) || 0;
+          headerBadge.textContent = String(Math.max(0, hn - 1));
+        }
+
+        // Re-run filter/sort/empty-hint logic so visible-count updates and
+        // the empty-state message shows if appropriate.
+        apply();
+      })
+      .catch(function(err) {
+        if (btn) { btn.disabled = false; btn.textContent = 'delete'; }
+        alert('Delete failed: ' + err.message + '. Reload and try again.');
+      });
     });
   });
 
