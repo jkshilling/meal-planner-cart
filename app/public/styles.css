@@ -336,7 +336,7 @@ label.inline {
   margin-right: 18px;
   margin-bottom: 8px;
 }
-input[type="text"], input[type="number"], input:not([type]), select, textarea {
+input[type="text"], input[type="number"], input[type="email"], input[type="password"], input[type="search"], input[type="tel"], input[type="url"], input:not([type]), select, textarea {
   width: 100%;
   padding: 8px 11px;
   border: 1px solid var(--line-2);
