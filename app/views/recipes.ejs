@@ -6,23 +6,9 @@
     <span class="muted tiny" id="visible-count" style="margin-left: 6px; font-weight: normal;"></span>
   </h1>
   <div>
-    <button class="btn" type="button" onclick="toggleOnline()">Search online</button>
     <button class="btn primary" type="button" onclick="toggleForm()"><%= editing ? 'Close editor' : '+ New recipe' %></button>
   </div>
 </div>
-
-<section class="card online-search-card" id="online-search-card" style="display:none">
-  <h2>Search recipes online</h2>
-  <p class="muted tiny">
-    Searches Spoonacular's database of ~360k recipes. Imported recipes arrive with real nutrition and per-serving cost — edit anything you want after.
-  </p>
-  <div class="row" style="align-items: flex-end;">
-    <input id="online-search" type="text" placeholder="e.g. chicken tikka, pancakes, carbonara" style="flex:1 1 320px" />
-    <button class="btn primary" type="button" onclick="runOnlineSearch()">Search</button>
-  </div>
-  <div id="online-status" class="muted tiny" style="margin-top:8px"></div>
-  <div id="online-results" class="online-results"></div>
-</section>
 
 <% /* New/Edit form — collapsed by default unless editing */ %>
 <section class="card recipe-form-card" id="recipe-form-card" style="<%= editing ? '' : 'display:none' %>">
@@ -283,76 +269,12 @@ function toggleForm() {
   var c = document.getElementById('recipe-form-card');
   c.style.display = (c.style.display === 'none' || !c.style.display) ? 'block' : 'none';
 }
-function toggleOnline() {
-  var c = document.getElementById('online-search-card');
-  c.style.display = (c.style.display === 'none' || !c.style.display) ? 'block' : 'none';
-  if (c.style.display !== 'none') document.getElementById('online-search').focus();
-}
 function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, function(c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
-function runOnlineSearch() {
-  var q = document.getElementById('online-search').value.trim();
-  if (!q) return;
-  var status = document.getElementById('online-status');
-  var out = document.getElementById('online-results');
-  status.textContent = 'Searching…';
-  out.innerHTML = '';
-  fetch('/recipes/search-online?q=' + encodeURIComponent(q))
-    .then(function(r) { return r.json(); })
-    .then(function(data) {
-      if (data.error) { status.textContent = 'Error: ' + data.error; return; }
-      var results = data.results || [];
-      if (!results.length) { status.textContent = 'No matches.'; return; }
-      status.textContent = results.length + ' result' + (results.length === 1 ? '' : 's') + ':';
-      out.innerHTML = results.map(function(r) {
-        // Spoonacular complexSearch doesn't return extendedIngredients (only
-        // /information does), so search results land with ingredients=[].
-        // Show count only when it's a real value.
-        var ingCount = (r.ingredients || []).length;
-        var meals = ['breakfast', 'lunch', 'snack', 'dinner', 'side'];
-        var options = meals.map(function(m) {
-          return '<option value="' + m + '"' + (m === r.meal_type ? ' selected' : '') + '>' + m + '</option>';
-        }).join('');
-        // Spoonacular results carry real nutrition + cost; show them in the card
-        // so the user knows what they're getting before importing.
-        var preview = '';
-        if (r.calories || r.est_cost) {
-          var bits = [];
-          if (r.calories) bits.push(r.calories + ' cal');
-          if (r.protein != null) bits.push(r.protein + 'g protein');
-          if (r.est_cost) bits.push('$' + Number(r.est_cost).toFixed(2));
-          if (r.prep_time) bits.push(r.prep_time + ' min');
-          preview = '<div class="online-result-preview tiny">' + escapeHtml(bits.join(' · ')) + '</div>';
-        }
-        var metaBits = [];
-        if (r.cuisine) metaBits.push(escapeHtml(r.cuisine));
-        if (r.category) metaBits.push(escapeHtml(r.category));
-        if (ingCount > 0) metaBits.push(ingCount + ' ingredients');
-        return '<div class="online-result">' +
-          (r.image_url ? '<img src="' + escapeHtml(r.image_url) + '" alt="" />' : '<div class="online-result-noimg"></div>') +
-          '<div class="online-result-body">' +
-            '<div class="online-result-title">' + escapeHtml(r.name) + '</div>' +
-            (metaBits.length ? '<div class="online-result-meta muted tiny">' + metaBits.join(' · ') + '</div>' : '') +
-            preview +
-            '<form method="post" action="/recipes/import-online" class="online-import-form">' +
-              '<input type="hidden" name="_csrf" value="' + window.__CSRF + '" />' +
-              '<input type="hidden" name="source_id" value="' + escapeHtml(r.source_id) + '" />' +
-              '<select name="meal_type">' + options + '</select>' +
-              '<button class="btn primary" type="submit">Import</button>' +
-            '</form>' +
-          '</div>' +
-        '</div>';
-      }).join('');
-    })
-    .catch(function(e) { status.textContent = 'Error: ' + e.message; });
-}
 document.addEventListener('DOMContentLoaded', function() {
-  var input = document.getElementById('online-search');
-  if (input) input.addEventListener('keydown', function(e) { if (e.key === 'Enter') runOnlineSearch(); });
-
   // Auto-scale ingredient quantities when the user changes "Servings" in the
   // recipe form. Stash the value at form-load so we can compute the ratio on
   // each subsequent change (and re-stash after each scale, so chained edits

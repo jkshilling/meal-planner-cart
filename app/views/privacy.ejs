@@ -22,10 +22,10 @@
     </li>
     <li>
       <strong>Public recipe data fetched from third-party APIs</strong>
-      (Spoonacular for recipes, USDA FoodData Central for nutrition).
-      Cached locally so the app does not re-fetch on every page view. No
-      personal data is sent to those APIs — only ingredient names and
-      recipe queries.
+      (USDA FoodData Central for nutrition; recipe schema.org JSON-LD
+      from sites you clip via the browser extension). Cached locally so
+      the app does not re-fetch on every page view. No personal data is
+      sent to those APIs — only ingredient names.
     </li>
     <li>
       <strong>Walmart product data</strong> captured by the Food Buyer
@@ -76,9 +76,9 @@
       <strong>Nowhere else.</strong> Your data is not sold, shared with
       advertisers, used to train AI models, or transmitted to any third
       party. The only outbound network calls the server makes are to
-      Spoonacular and USDA when you click <em>Search recipes</em> or
-      <em>Estimate nutrition</em> — and those calls contain only ingredient
-      names or recipe queries, no account data.
+      USDA FoodData Central and (optionally) OpenAI for ingredient
+      normalization — those calls contain only ingredient names, no
+      account data.
     </li>
   </ul>
 

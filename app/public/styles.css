@@ -622,50 +622,6 @@ tr.confidence-medium { background: #fdf9f0; }
 body.show-scoring .slot-meta.tiny { display: block; }
 
 /* ============================================================
- * TheMealDB online results
- * ============================================================ */
-.online-search-card {
-  border-left: 3px solid var(--sage);
-  background: #fcfaf5;
-}
-.online-results {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 14px;
-  margin-top: 14px;
-}
-.online-result {
-  display: flex;
-  gap: 14px;
-  padding: 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: #fff;
-  transition: box-shadow 0.15s, transform 0.15s;
-}
-.online-result:hover { box-shadow: var(--shadow); transform: translateY(-1px); }
-.online-result img, .online-result-noimg {
-  width: 72px; height: 72px;
-  border-radius: var(--radius-sm);
-  object-fit: cover;
-  flex: 0 0 72px;
-}
-.online-result-noimg { background: var(--cream-2); }
-.online-result-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
-.online-result-title { font-weight: 600; font-family: var(--font-display); font-size: 15px; }
-.online-import-form { display: flex; gap: 6px; margin-top: 4px; align-items: center; }
-.online-import-form select { flex: 1; padding: 5px 8px; font-size: 13px; }
-.online-import-form .btn { padding: 5px 12px; font-size: 13px; margin: 0; }
-.online-result-preview {
-  background: var(--cream-2);
-  color: var(--ink-soft);
-  padding: 3px 8px;
-  border-radius: 99px;
-  align-self: flex-start;
-  font-size: 11px;
-}
-
-/* ============================================================
  * Landing page — public homepage shown to logged-out visitors
  * ============================================================ */
 .landing-hero {

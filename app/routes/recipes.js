@@ -1,6 +1,5 @@
 const express = require('express');
 const db = require('../db');
-const spoonacular = require('../services/spoonacular');
 const usda = require('../services/usda');
 const household = require('../services/household');
 const nytCooking = require('../services/nyt_cooking');
@@ -125,24 +124,6 @@ router.get('/recipes', requireAuth, (req, res) => {
   res.render('recipes', { title: 'Recipes', recipes, editing, counts });
 });
 
-// Search Spoonacular for recipes matching a query. Returns JSON so the
-// page can render results without a full reload.
-// NOTE: defined above the POST /recipes/:id handler so the literal path
-// match wins over the :id capture.
-router.get('/recipes/search-online', requireAuth, async (req, res) => {
-  const q = (req.query.q || '').trim();
-  if (!q) return res.json({ results: [] });
-  if (!spoonacular.isEnabled()) {
-    return res.status(503).json({ error: 'SPOONACULAR_API_KEY not set on server', results: [] });
-  }
-  try {
-    const results = await spoonacular.searchByName(q);
-    res.json({ results });
-  } catch (e) {
-    res.status(502).json({ error: e.message, results: [] });
-  }
-});
-
 // Compute estimated nutrition for a list of ingredients without persisting.
 // Used by the "Pre-fill from USDA" button on the recipe form so the user
 // can see what'll get saved before committing.
@@ -163,50 +144,6 @@ router.post('/recipes/nutrition-preview', requireAuth, express.json(), async (re
   }
 });
 
-router.post('/recipes/import-online', requireAuth, async (req, res) => {
-  const b = req.body;
-  const sourceId = (b.source_id || '').toString();
-  if (!sourceId) return res.redirect('/recipes');
-  if (!spoonacular.isEnabled()) {
-    return res.redirect('/recipes?import_err=' + encodeURIComponent('SPOONACULAR_API_KEY not set'));
-  }
-  try {
-    const uid = userIdOf(req);
-    // Skip if this Spoonacular recipe is already in the user's library.
-    const existing = db.prepare(
-      'SELECT id FROM recipes WHERE user_id = ? AND source_id = ?'
-    ).get(uid, sourceId);
-    if (existing) {
-      return res.redirect('/recipes?edit=' + existing.id);
-    }
-
-    const recipe = await spoonacular.lookupById(sourceId);
-    if (!recipe) return res.redirect('/recipes?import_err=not_found');
-    const mealType = ['breakfast', 'lunch', 'snack', 'dinner', 'side'].includes(b.meal_type) ? b.meal_type : recipe.meal_type;
-
-    const info = db.prepare(`INSERT INTO recipes
-      (name, meal_type, cuisine, prep_time, servings, est_cost, favorite, notes, user_id, source_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(recipe.name, mealType, recipe.cuisine, recipe.prep_time, recipe.servings, recipe.est_cost,
-           0, recipe.notes, uid, sourceId);
-    const insertIng = db.prepare('INSERT INTO recipe_ingredients (recipe_id, name, quantity, unit) VALUES (?, ?, ?, ?)');
-    // Canonicalize on the way in so Spoonacular-imported ingredients match
-    // nutrition_lookups keys without a follow-up rename pass.
-    const canonIngs = recipe.ingredients.map(ing => ({
-      ...ing,
-      name: usda.canonicalize(ing.name) || ing.name
-    }));
-    for (const ing of canonIngs) {
-      insertIng.run(info.lastInsertRowid, ing.name, ing.quantity, ing.unit);
-    }
-    // Warm USDA cache for any new ingredient names so the next render of
-    // the list/edit form has nutrition data to display.
-    warmNutritionCache(canonIngs, recipe.servings);
-    return res.redirect('/recipes?edit=' + info.lastInsertRowid);
-  } catch (e) {
-    return res.redirect('/recipes?import_err=' + encodeURIComponent(e.message));
-  }
-});
 
 router.post('/recipes', requireAuth, (req, res) => {
   const b = req.body;

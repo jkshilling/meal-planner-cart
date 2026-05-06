@@ -7,12 +7,18 @@ data/app.db-journal
 data/app.db-shm
 data/app.db-wal
 
-# Spoonacular bulk-seed output. Gitignored during pipeline development;
-# remove this line and commit the JSON once we've curated a final library.
-data/spoonacular-seed.json
-
-# Daily fetch cron log
+# Daily fetch cron log (retired Spoonacular cron — kept the ignore so any
+# stragglers on existing checkouts don't show up in git status).
 data/fetch.log
+
+# Chrome extension packed-output artifacts. The .pem is the private key
+# used to sign the extension; committing it would let anyone impersonate
+# our extension's identity. The .crx is the packed binary, regenerable
+# from the unpacked source — no need to track.
+chrome-extension/*.pem
+chrome-extension/*.crx
+chrome-extension/**/*.pem
+chrome-extension/**/*.crx
 
 # Environment
 .env

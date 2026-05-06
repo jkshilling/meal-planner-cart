@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS recipes (
   -- columns are removed by the migration block below for existing DBs.)
   favorite INTEGER NOT NULL DEFAULT 0,
   notes TEXT,
-  -- External source ID (e.g. Spoonacular recipe ID, stringified). NULL for
+  -- External source ID (e.g. "nyt:1023535"). NULL for
   -- hand-entered recipes. data/seed.js + routes/recipes.js use this to
   -- skip re-importing recipes that already exist for a user.
   source_id TEXT,
@@ -220,12 +220,12 @@ CREATE TABLE IF NOT EXISTS nutrition_lookups (
   fetched_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- Source IDs (Spoonacular recipe IDs) that the owner has decided shouldn't
--- be in anyone's library. The "Exclude from master library" button on a
--- recipe row inserts here AND deletes the row. Re-sync paths (signup-time
--- seed and the explicit re-sync button) filter out these IDs so the recipe
--- never lands in any user's library again — including future signups.
--- Existing copies in OTHER users' libraries are not retroactively deleted.
+-- Source IDs that the owner has decided shouldn't be in anyone's library.
+-- The "Exclude from master library" button on a recipe row inserts here AND
+-- deletes the row. Re-sync paths (signup-time seed and the explicit re-sync
+-- button) filter out these IDs so the recipe never lands in any user's
+-- library again — including future signups. Existing copies in OTHER users'
+-- libraries are not retroactively deleted.
 CREATE TABLE IF NOT EXISTS excluded_recipe_sources (
   source_id TEXT PRIMARY KEY,
   reason TEXT,
@@ -438,9 +438,10 @@ ensureColumn('household_members', 'disliked_ingredients_json',`TEXT NOT NULL DEF
 // only get packed groceries on the shopping list once they pick a recipe).
 ensureColumn('household_members', 'packed_recipe_ids_json',   `TEXT NOT NULL DEFAULT '{}'`);
 
-// Spoonacular (or other external) source ID, used by data/seed.js and the
-// manual import route to dedupe on re-import. Stringified — Spoonacular IDs
-// are integers but we don't want to assume that for future sources.
+// External source ID for imported recipes. Currently set by the NYT
+// Cooking clipper extension as "nyt:<recipe-id>". Used as the dedup
+// key on re-import. Stringified for forward-compat with non-integer IDs
+// from future sources.
 ensureColumn('recipes', 'source_id', 'TEXT');
 
 // Audit column for the LLM-canonicalize fallback (services/llm_canonicalize).

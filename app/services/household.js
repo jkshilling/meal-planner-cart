@@ -8,12 +8,8 @@
 //   2. createHouseholdForUser — for fresh users with no existing data to
 //      claim. Creates a blank household with a default "Me" member.
 
-const fs = require('fs');
-const path = require('path');
 const db = require('../db');
 const usda = require('./usda');
-
-const SPOONACULAR_SEED_PATH = path.join(__dirname, '..', '..', 'data', 'spoonacular-seed.json');
 
 function claimOrphanedHouseholds(userId, email) {
   // BOOTSTRAP_OWNER_EMAIL gate: in production, set this to the email that
@@ -82,47 +78,32 @@ function createHouseholdForUser(userId) {
   return info.lastInsertRowid;
 }
 
-// Sync Spoonacular-sourced recipes (those with source_id set) into a target
-// user's library. Used both for the initial seed at signup AND the explicit
-// "re-sync from master library" button on settings — same code path,
-// idempotent.
+// Sync source_id-bearing recipes from the bootstrap owner's library into a
+// target user's library. Used at signup so a new invitee inherits the
+// owner's curated recipes, and also by the explicit "re-sync from master
+// library" button on /settings.
 //
-// Dispatches based on whether the target user is the bootstrap owner:
-//   - Non-owner → deep-copy any source_id-bearing recipes from the owner's
-//     library that the user doesn't already have. (The owner's library IS
-//     the master library for everyone else.)
-//   - Owner → restore from data/spoonacular-seed.json. The owner's own
-//     library can't be its own source of truth (deleted recipes are gone),
-//     but the JSON file is an append-only audit log of every recipe the
-//     nightly cron has ever pulled. So the owner's "master library" is
-//     effectively the JSON, and re-sync brings back anything they deleted.
+// Owner-on-owner is a no-op: there's no master library separate from the
+// owner's own DB rows. (Earlier this branch restored from a staged JSON
+// file written by a Spoonacular pull cron — that pipeline has been
+// retired.)
 //
 // What it never does:
-//   - Touch hand-entered recipes (source_id NULL is invisible to every
-//     query/JSON entry this code uses).
-//   - Modify the user's existing copies of recipes — edits, customized
-//     ingredients, custom calories all preserved. Dedup is by source_id
-//     so we never overwrite anything.
-//   - Reset favorites on existing recipes. (Newly-inserted copies do start
-//     with favorite=0; favorites are personal taste, not inherited.)
+//   - Touch hand-entered recipes (source_id NULL is invisible).
+//   - Modify the user's existing copies — edits, customized ingredients,
+//     custom calories all preserved. Dedup is by source_id.
+//   - Reset favorites on existing recipes.
 //   - Delete anything.
 //
-// Returns the number of recipes newly added in this sync. No-ops (returns 0)
-// when:
-//   - BOOTSTRAP_OWNER_EMAIL is unset
-//   - the owner doesn't exist yet
-//   - non-owner case: owner has no source_id-bearing recipes the user lacks
-//   - owner case: spoonacular-seed.json is missing/empty, OR the owner
-//     already has every source_id in the JSON
+// Returns the number of recipes newly added.
 function seedRecipesForUser(userId) {
   const ownerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL || '').toLowerCase().trim();
   if (!ownerEmail) return 0;
   const owner = db.prepare('SELECT id FROM users WHERE email = ?').get(ownerEmail);
   if (!owner) return 0;
+  if (owner.id === userId) return 0;  // owner = master library; nothing to copy from
 
-  return owner.id === userId
-    ? importFromStagedJson(userId)
-    : copyFromOwnerLibrary(userId, owner.id);
+  return copyFromOwnerLibrary(userId, owner.id);
 }
 
 // Copy any of source_user's source_id-bearing recipes into target_user that
@@ -150,56 +131,7 @@ function copyFromOwnerLibrary(targetUserId, sourceUserId) {
   return insertRecipesAndIngredients(targetUserId, sources, (r) => selectIngs.all(r.id));
 }
 
-// Read data/spoonacular-seed.json (an append-only cache of every recipe the
-// nightly Spoonacular cron has pulled) and insert any source_ids the target
-// user is missing. The JSON IS the master library when the owner re-syncs
-// against themselves — the owner's currently-deleted recipes are still in
-// there. Format matches what fetch-seed.js writes; same shape data/seed.js
-// expects.
-function importFromStagedJson(targetUserId) {
-  if (!fs.existsSync(SPOONACULAR_SEED_PATH)) return 0;
-  let staged;
-  try {
-    staged = JSON.parse(fs.readFileSync(SPOONACULAR_SEED_PATH, 'utf8'));
-  } catch (e) {
-    return 0;
-  }
-  if (!Array.isArray(staged) || !staged.length) return 0;
-
-  const have = userSourceIds(targetUserId);
-  const excluded = excludedSourceIds();
-  const missing = staged.filter(r => {
-    if (r.source_id == null) return false;
-    const sid = String(r.source_id);
-    return !have.has(sid) && !excluded.has(sid);
-  });
-  if (!missing.length) return 0;
-
-  // Map the JSON shape onto our column shape. Defaults match data/seed.js.
-  // Spoonacular's per-recipe nutrition (calories/protein/etc. on `r`) is
-  // intentionally ignored — nutrition is now derived from ingredients
-  // via nutrition_lookups, so we just stash the ingredients and the
-  // insertRecipesAndIngredients warm-up handles the rest.
-  const recipeRows = missing.map(r => ({
-    name: r.name || 'Untitled',
-    meal_type: r.meal_type || 'dinner',
-    cuisine: r.cuisine || null,
-    prep_time: r.prep_time || 30,
-    servings: r.servings || 4,
-    est_cost: typeof r.est_cost === 'number' ? r.est_cost : 10,
-    notes:    r.notes || null,
-    source_id: String(r.source_id),
-    _ings: (r.ingredients || []).map(ing => ({
-      name: ing.name,
-      quantity: typeof ing.quantity === 'number' && ing.quantity > 0 ? ing.quantity : 1,
-      unit: ing.unit || 'each'
-    }))
-  }));
-
-  return insertRecipesAndIngredients(targetUserId, recipeRows, (r) => r._ings);
-}
-
-// Set of source_ids the user already owns. Used to dedupe both code paths.
+// Set of source_ids the user already owns. Used to dedupe at copy time.
 function userSourceIds(userId) {
   return new Set(
     db.prepare(
