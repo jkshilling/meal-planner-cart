@@ -597,8 +597,8 @@ function nutritionFromCache(ingredients, servings) {
   const db = require('../db');
   let cal = 0, pro = 0, ca = 0, fa = 0, fi = 0, su = 0, so = 0;
   let covered = 0;
-  const total = (ingredients || []).length;
-  if (!total) return null;
+  let total = 0;
+  if (!ingredients || !ingredients.length) return null;
 
   // Batch-fetch every ingredient's cached row in one query instead of N
   // round-trips. Keys are the canonicalize(name) form the searchFood path
@@ -619,7 +619,13 @@ function nutritionFromCache(ingredients, servings) {
 
   for (const ing of ingredients) {
     const grams = unitToGrams(ing.quantity, ing.unit, ing.name);
+    // Pure-flavor ingredients (unit "to taste", unparseable measurements
+    // like "for serving") are excluded from both numerator AND denominator.
+    // They're deliberately unquantifiable — counting them as "missing"
+    // would falsely flag every recipe with a "salt to taste" line as
+    // partial coverage.
     if (!grams) continue;
+    total++;
     const food = byName[canonicalize(ing.name)];
     if (!food || food.calories_per_100g == null) continue;
     const factor = grams / 100;
@@ -652,9 +658,13 @@ function nutritionFromCache(ingredients, servings) {
 async function recipeNutrition(ingredients, servings) {
   let cal = 0, pro = 0, ca = 0, fa = 0, fi = 0, su = 0, so = 0;
   let covered = 0;
+  let total = 0;
   for (const ing of ingredients || []) {
     const grams = unitToGrams(ing.quantity, ing.unit, ing.name);
+    // Skip purely-flavor ingredients ("to taste", etc.) for both
+    // covered AND total — same reasoning as nutritionFromCache above.
     if (!grams) continue;
+    total++;
     const food = await searchFood(ing.name);
     if (!food || food.calories_per_100g == null) continue;
     const factor = grams / 100;
@@ -678,7 +688,7 @@ async function recipeNutrition(ingredients, servings) {
     sugar:    +(su  / s).toFixed(1),
     sodium:   +(so  / s).toFixed(1),
     covered_ingredients: covered,
-    total_ingredients: (ingredients || []).length
+    total_ingredients: total
   };
 }
 
