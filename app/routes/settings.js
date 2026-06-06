@@ -180,6 +180,82 @@ router.post('/settings/grocery-token/rotate', requireAuth, (req, res) => {
   res.redirect('/settings?tokenRotated=1#grocery-extension');
 });
 
+// Data export — JSON snapshot of every user-scoped table. Future-proofs
+// against droplet loss; the user can hold the JSON locally and re-bootstrap
+// (or just have it as a backup of curated recipes).
+//
+// Filters every table by user_id (or transitively via recipe_id /
+// plan_id / profile_id) so a future multi-tenant scenario doesn't leak
+// cross-user data. Omits user_grocery_tokens — exporting a bearer is a
+// foot-gun — and omits the shared walmart_products / nutrition_lookups
+// caches since they're regenerable from public APIs.
+router.get('/settings/export', requireAuth, (req, res) => {
+  const uid = userIdOf(req);
+  const user = db.prepare('SELECT id, email, created_at FROM users WHERE id = ?').get(uid);
+  const profiles = db.prepare('SELECT * FROM household_profiles WHERE user_id = ?').all(uid);
+  const profileIds = profiles.map(p => p.id);
+  const profilePh = profileIds.length ? profileIds.map(() => '?').join(',') : '';
+  const members = profileIds.length
+    ? db.prepare(`SELECT * FROM household_members WHERE profile_id IN (${profilePh})`).all(...profileIds)
+    : [];
+
+  const recipes = db.prepare('SELECT * FROM recipes WHERE user_id = ?').all(uid);
+  const recipeIds = recipes.map(r => r.id);
+  const recipePh = recipeIds.length ? recipeIds.map(() => '?').join(',') : '';
+  const ingredients = recipeIds.length
+    ? db.prepare(`SELECT * FROM recipe_ingredients WHERE recipe_id IN (${recipePh})`).all(...recipeIds)
+    : [];
+
+  const plans = db.prepare('SELECT * FROM weekly_plans WHERE user_id = ?').all(uid);
+  const planIds = plans.map(p => p.id);
+  const planPh = planIds.length ? planIds.map(() => '?').join(',') : '';
+  const planItems = planIds.length
+    ? db.prepare(`SELECT * FROM weekly_plan_items WHERE plan_id IN (${planPh})`).all(...planIds)
+    : [];
+  const shoppingItems = planIds.length
+    ? db.prepare(`SELECT * FROM shopping_items WHERE plan_id IN (${planPh})`).all(...planIds)
+    : [];
+
+  const userFavorites    = db.prepare('SELECT * FROM user_favorites WHERE user_id = ?').all(uid);
+  const grocerySearches  = db.prepare('SELECT * FROM grocery_searches WHERE user_id = ?').all(uid);
+  const ingredientProducts = db.prepare('SELECT * FROM ingredient_products WHERE user_id = ?').all(uid);
+  const inviteCodesOwned = db.prepare('SELECT * FROM invite_codes WHERE created_by_user_id = ?').all(uid);
+
+  const exportData = {
+    schema_version: 1,
+    exported_at: new Date().toISOString(),
+    app: 'meal-planner-cart',
+    user: { id: user.id, email: user.email, created_at: user.created_at },
+    counts: {
+      recipes: recipes.length,
+      ingredients: ingredients.length,
+      plans: plans.length,
+      plan_items: planItems.length,
+      shopping_items: shoppingItems.length,
+      household_members: members.length,
+      invite_codes: inviteCodesOwned.length
+    },
+    tables: {
+      household_profiles: profiles,
+      household_members: members,
+      recipes,
+      recipe_ingredients: ingredients,
+      weekly_plans: plans,
+      weekly_plan_items: planItems,
+      shopping_items: shoppingItems,
+      user_favorites: userFavorites,
+      grocery_searches: grocerySearches,
+      ingredient_products: ingredientProducts,
+      invite_codes: inviteCodesOwned
+    }
+  };
+
+  const filename = `meal-planner-export-${user.id}-${new Date().toISOString().slice(0, 10)}.json`;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(JSON.stringify(exportData, null, 2));
+});
+
 // Re-sync the user's recipe library from the bootstrap owner's master
 // library. Purely additive: copies any source_id-bearing recipes the user
 // doesn't already have. See services/household.seedRecipesForUser for the
