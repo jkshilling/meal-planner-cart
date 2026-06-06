@@ -449,6 +449,23 @@ ensureColumn('recipes', 'source_id', 'TEXT');
 // strikethroughs). Defaults to 0 so existing rows aren't pre-checked.
 ensureColumn('shopping_items', 'done', 'INTEGER NOT NULL DEFAULT 0');
 
+// Password reset tokens. The token is a 256-bit random value; we store
+// the sha256 hash so a DB leak doesn't expose live reset URLs. 1-hour
+// expiry. used=1 after a successful reset; rows are swept on next boot.
+const PASSWORD_RESET_DDL = `
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  )
+`;
+db.exec(PASSWORD_RESET_DDL);
+db.prepare("DELETE FROM password_reset_tokens WHERE expires_at < datetime('now')").run();
+
 // Audit column for the LLM-canonicalize fallback (services/llm_canonicalize).
 // When services/usda.searchFood gets zero FDC candidates for an ingredient
 // name, it asks the LLM for a USDA-friendlier rewrite and retries with that.

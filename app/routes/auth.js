@@ -5,12 +5,24 @@
 // middleware in server.js.
 
 const express = require('express');
+const crypto = require('crypto');
 const rateLimit = require('express-rate-limit');
 const auth = require('../services/auth');
 const household = require('../services/household');
 const invites = require('../services/invites');
+const email = require('../services/email');
+const db = require('../db');
 
 const router = express.Router();
+
+// Password-reset token lifetime. 1 hour balances "long enough that the user
+// can finish reading the email and click through" against "short enough that
+// an intercepted email is mostly stale."
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+function sha256(s) {
+  return crypto.createHash('sha256').update(s).digest('hex');
+}
 
 // Brute-force protection on credential endpoints.
 //
@@ -190,6 +202,149 @@ router.post('/signup', signupLimiter, async (req, res) => {
     flashSuccess(req, 'Account created. Welcome.');
     req.session.save(() => res.redirect('/'));
   });
+});
+
+// /forgot-password rate limit: 5 reset requests per IP per hour. Each
+// successful request sends an email (real outbound) AND, more importantly,
+// the response is deliberately indistinguishable for "email exists" vs
+// "email does not" — so the only way an attacker could enumerate users is
+// by triggering this endpoint many times and timing the responses.
+// Capping it kills that vector before it starts.
+const forgotLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    res.status(429).render('forgot_password', {
+      title: 'Reset password',
+      email: (req.body && req.body.email) || '',
+      flash: { type: 'warn', message: 'Too many reset attempts. Try again in an hour.' },
+      sent: false
+    });
+  }
+});
+
+router.get('/forgot-password', (req, res) => {
+  if (req.session && req.session.user) return res.redirect('/');
+  res.render('forgot_password', { title: 'Reset password', email: '', sent: false });
+});
+
+router.post('/forgot-password', forgotLimiter, async (req, res) => {
+  const submittedEmail = (req.body.email || '').toString();
+
+  // ALWAYS return the same generic success page, regardless of whether the
+  // email matches a real account. This avoids leaking "user X exists" to
+  // anyone who can hit the form. Any work we do (token issue, send) happens
+  // best-effort behind that response.
+  const renderSent = () => res.render('forgot_password', {
+    title: 'Reset password',
+    email: submittedEmail,
+    sent: true,
+    flash: null
+  });
+
+  if (!auth.isValidEmail(submittedEmail)) {
+    // Don't even bother rendering an error — same generic response. This
+    // matches the no-such-user case so the form leaks nothing.
+    return renderSent();
+  }
+
+  const user = auth.findUserByEmail(submittedEmail);
+  if (!user) return renderSent();
+
+  // Generate a 32-byte random token, store only its SHA-256 hash. The
+  // plaintext token only ever exists in (a) the email body and (b) the
+  // URL the user clicks. A DB leak does NOT expose working reset links.
+  const token = crypto.randomBytes(32).toString('hex');
+  const tokenHash = sha256(token);
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+
+  // Invalidate any prior unused tokens for this user so a leaked-but-unused
+  // older email can't race with the fresh one.
+  db.prepare(
+    "UPDATE password_reset_tokens SET used = 1 WHERE user_id = ? AND used = 0"
+  ).run(user.id);
+  db.prepare(
+    "INSERT INTO password_reset_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)"
+  ).run(user.id, tokenHash, expiresAt);
+
+  const base = email.appUrl() || `${req.protocol}://${req.get('host')}`;
+  const link = `${base}/reset-password/${token}`;
+
+  // Fire-and-forget send. If Resend is unconfigured (no RESEND_API_KEY)
+  // this no-ops with a console warning; the user still sees the generic
+  // success page. That's intentional — we don't want the form to behave
+  // differently when email is broken vs when the user typed a wrong
+  // address, because both would leak.
+  email.sendEmail({
+    to: user.email,
+    subject: 'Reset your Meal Planner password',
+    text:
+      `Someone (hopefully you) requested a password reset for your Meal Planner account.\n\n` +
+      `Click this link within the next hour to choose a new password:\n${link}\n\n` +
+      `If you didn't request this, you can safely ignore this email — your password won't change.`,
+    html:
+      `<p>Someone (hopefully you) requested a password reset for your Meal Planner account.</p>` +
+      `<p><a href="${link}">Click here to choose a new password</a> (link expires in 1 hour).</p>` +
+      `<p>If you didn't request this, you can safely ignore this email — your password won't change.</p>` +
+      `<p style="color:#888;font-size:12px">Or paste this URL into your browser:<br>${link}</p>`
+  }).then((result) => {
+    if (!result.ok) console.warn('[forgot-password] email send failed:', result.reason);
+  });
+
+  return renderSent();
+});
+
+// Load a not-yet-used, not-expired token row by the plaintext token. Returns
+// null on any failure (unknown token, expired, already used).
+function loadValidResetToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  const row = db.prepare(
+    "SELECT * FROM password_reset_tokens WHERE token_hash = ? AND used = 0 AND expires_at > datetime('now')"
+  ).get(sha256(token));
+  return row || null;
+}
+
+router.get('/reset-password/:token', (req, res) => {
+  const row = loadValidResetToken(req.params.token);
+  if (!row) {
+    return res.status(400).render('reset_password', {
+      title: 'Reset password',
+      token: '',
+      invalid: true,
+      flash: { type: 'warn', message: 'That reset link is invalid or has expired. Request a new one.' }
+    });
+  }
+  res.render('reset_password', { title: 'Reset password', token: req.params.token, invalid: false });
+});
+
+router.post('/reset-password/:token', async (req, res) => {
+  const row = loadValidResetToken(req.params.token);
+  if (!row) {
+    return res.status(400).render('reset_password', {
+      title: 'Reset password',
+      token: '',
+      invalid: true,
+      flash: { type: 'warn', message: 'That reset link is invalid or has expired. Request a new one.' }
+    });
+  }
+  const password = (req.body.password || '').toString();
+  const confirm = (req.body.confirm || '').toString();
+  if (!auth.isValidPassword(password)) {
+    inlineError(res, `Password must be at least ${auth.MIN_PASSWORD_LEN} characters.`);
+    return res.render('reset_password', { title: 'Reset password', token: req.params.token, invalid: false });
+  }
+  if (password !== confirm) {
+    inlineError(res, 'Passwords do not match.');
+    return res.render('reset_password', { title: 'Reset password', token: req.params.token, invalid: false });
+  }
+
+  await auth.setPassword(row.user_id, password);
+  db.prepare('UPDATE password_reset_tokens SET used = 1 WHERE id = ?').run(row.id);
+
+  flashSuccess(req, 'Password updated. Sign in with your new password.');
+  res.redirect('/login');
 });
 
 router.post('/logout', (req, res) => {

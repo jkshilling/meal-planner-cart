@@ -55,6 +55,14 @@ function userCount() {
   return db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
 }
 
+// Replace a user's password hash. Used by the password-reset flow after a
+// valid one-time token is presented. Caller is responsible for token
+// validation; this does no checks beyond hashing.
+async function setPassword(userId, newPlain) {
+  const password_hash = await hashPassword(newPlain);
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(password_hash, userId);
+}
+
 // Read the logged-in user's id off the request, or null when not authed.
 // Used by routes during the WIP migration so they can scope queries when
 // a session exists and fall back to legacy "single household" behavior
@@ -84,6 +92,7 @@ module.exports = {
   findUserByEmail,
   getUserById,
   createUser,
+  setPassword,
   userCount,
   requireAuth,
   userIdOf,
