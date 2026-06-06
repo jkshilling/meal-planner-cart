@@ -117,6 +117,110 @@
     localStorage.setItem(key, box.checked ? '1' : '0');
   });
 })();
+
+// Async slot updates — no full page reload, scroll position survives.
+// Each slot's swap/regen/lock form intercepts submit, POSTs with JSON
+// Accept, and updates the .slot-name + .slot-meta + select in place.
+(function() {
+  function asNoneOrName(name) {
+    return name || '— none —';
+  }
+  function findSlotContainer(form, target) {
+    // The main form lives directly under .slot; the side form lives
+    // under .slot .slot-side. Use the form's `target` hidden input to
+    // decide which display elements to update.
+    if (target === 'side') return form.closest('.slot-side');
+    var slot = form.closest('.slot');
+    return slot;
+  }
+  function updateMain(container, data) {
+    // .slot-name is the first child of .slot (the side block has its
+    // own .slot-name nested inside .slot-side); query directly to
+    // grab the right one even when both exist.
+    var nameEl = container.querySelector(':scope > .slot-name');
+    if (nameEl) {
+      // Preserve the locked tag element if currently present.
+      nameEl.textContent = asNoneOrName(data.recipe_name) + ' ';
+      if (data.locked) {
+        var tag = document.createElement('span');
+        tag.className = 'tag';
+        tag.textContent = 'locked';
+        nameEl.appendChild(tag);
+      }
+    }
+    var metaEl = container.querySelector(':scope > .slot-meta');
+    if (metaEl) {
+      if (data.recipe_id) {
+        metaEl.textContent = (data.prep_time || 0) + 'm · $' + (data.est_cost != null ? data.est_cost : 0);
+      } else {
+        metaEl.textContent = '';
+      }
+    }
+    // Update the lock-button label so the next click toggles correctly.
+    var lockBtn = container.querySelector(':scope > .slot-form button[value="lock"]');
+    if (lockBtn) lockBtn.textContent = data.locked ? 'unlock' : 'lock';
+  }
+  function updateSide(container, data) {
+    if (!container) return;
+    var nameEl = container.querySelector('.slot-name');
+    if (nameEl) nameEl.textContent = asNoneOrName(data.side_recipe_name);
+    var metaEl = container.querySelector('.slot-meta');
+    if (metaEl) {
+      if (data.side_recipe_id) {
+        metaEl.textContent = (data.side_prep_time || 0) + 'm · $' + (data.side_est_cost != null ? data.side_est_cost : 0);
+      } else {
+        metaEl.textContent = '';
+      }
+    }
+  }
+
+  document.querySelectorAll('.slot-form').forEach(function(form) {
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      var fd = new FormData(form);
+      // The submit button that was clicked tells us the action — swap
+      // is "no action attr, value=empty"; regenerate and lock supply
+      // their own name=action value=<action> on the button itself.
+      var submitter = e.submitter;
+      if (submitter && submitter.name === 'action') {
+        fd.set('action', submitter.value);
+      }
+      var target = fd.get('target') || 'main';
+      var slotContainer = findSlotContainer(form, target);
+
+      // Disable buttons during the round-trip to prevent double-clicks.
+      form.querySelectorAll('button').forEach(function(b) { b.disabled = true; });
+
+      fetch(form.action, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+        body: fd
+      })
+      .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data) {
+        if (!data.ok) throw new Error(data.reason || 'update failed');
+        if (target === 'side') {
+          updateSide(slotContainer, data);
+        } else {
+          updateMain(slotContainer, data);
+        }
+        // Sync the select to the new recipe_id (regenerate can swap to
+        // a different recipe than what was visible in the dropdown).
+        var sel = form.querySelector('select[name="recipe_id"]');
+        if (sel) {
+          var rid = (target === 'side' ? data.side_recipe_id : data.recipe_id) || '';
+          sel.value = String(rid || '');
+        }
+      })
+      .catch(function(err) {
+        alert('Slot update failed: ' + err.message + '. Reload and try again.');
+      })
+      .finally(function() {
+        form.querySelectorAll('button').forEach(function(b) { b.disabled = false; });
+      });
+    });
+  });
+})();
 </script>
 
 <% if (plan.status !== 'approved') { %>

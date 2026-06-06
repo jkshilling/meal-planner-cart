@@ -125,6 +125,38 @@ router.post('/planner/update-slot', requireAuth, (req, res) => {
     const recipeId = b.recipe_id ? parseInt(b.recipe_id, 10) : null;
     planner.updateSlot(planId, day, mealType, recipeId, false, target);
   }
+
+  // AJAX clients (the JS on /plan/:id) get JSON describing the slot's new
+  // state and update the DOM in place — no full page reload, scroll stays.
+  // Plain form submits still get a redirect (no-JS fallback works).
+  if ((req.get('Accept') || '').includes('application/json')) {
+    const slot = db.prepare(`
+      SELECT i.recipe_id, i.side_recipe_id, i.locked,
+             m.name AS main_name, m.prep_time AS main_prep, m.est_cost AS main_cost,
+             s.name AS side_name, s.prep_time AS side_prep, s.est_cost AS side_cost
+        FROM weekly_plan_items i
+        LEFT JOIN recipes m ON m.id = i.recipe_id
+        LEFT JOIN recipes s ON s.id = i.side_recipe_id
+       WHERE i.plan_id = ? AND i.day = ? AND i.meal_type = ?
+    `).get(planId, day, mealType);
+    if (!slot) return res.json({ ok: false, reason: 'slot not found' });
+    return res.json({
+      ok: true,
+      target,
+      day,
+      meal_type: mealType,
+      recipe_id: slot.recipe_id,
+      recipe_name: slot.main_name || null,
+      prep_time: slot.main_prep,
+      est_cost: slot.main_cost,
+      side_recipe_id: slot.side_recipe_id,
+      side_recipe_name: slot.side_name || null,
+      side_prep_time: slot.side_prep,
+      side_est_cost: slot.side_cost,
+      locked: !!slot.locked
+    });
+  }
+
   res.redirect('/plan/' + planId);
 });
 
