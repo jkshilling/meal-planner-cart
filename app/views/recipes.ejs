@@ -444,15 +444,48 @@ function scheduleNutritionRefresh() {
   var sortDir = 1;            // 1 = asc, -1 = desc
   var sortNumeric = false;
 
-  // Async delete: confirm, POST in the background, on 204 remove the row
-  // in place + update the per-tab and total counts. Avoids the full-page
-  // reload that the redirect-based flow does, which dumps the user's
-  // scroll position back to the top.
+  // Two-step destructive-button confirm. First click changes the button
+  // text + adds a visual highlight; second click within the timeout
+  // performs the action. After the timeout, the button reverts. Replaces
+  // the blocking native confirm() dialog with an inline, native-feeling
+  // pattern. armConfirm returns true when the button is "armed" (the
+  // user has acknowledged) and false on the first click.
+  function armConfirm(btn, armedText) {
+    if (!btn) return true;  // No button → nothing to arm, just proceed.
+    if (btn.dataset.armed === '1') {
+      // Second click: commit. Reset state so the caller is free to do
+      // whatever it needs (the caller is also responsible for any
+      // post-action cleanup if the action fails).
+      btn.dataset.armed = '0';
+      btn.classList.remove('confirm-armed');
+      btn.textContent = btn.dataset.originalText || btn.textContent;
+      if (btn._revertTimer) { clearTimeout(btn._revertTimer); btn._revertTimer = null; }
+      return true;
+    }
+    // First click: arm. Stash the original text once so chained clicks
+    // don't lose it.
+    if (!btn.dataset.originalText) btn.dataset.originalText = btn.textContent;
+    btn.dataset.armed = '1';
+    btn.classList.add('confirm-armed');
+    btn.textContent = armedText || 'click to confirm';
+    btn._revertTimer = setTimeout(function() {
+      btn.dataset.armed = '0';
+      btn.classList.remove('confirm-armed');
+      btn.textContent = btn.dataset.originalText;
+      btn._revertTimer = null;
+    }, 3500);
+    return false;
+  }
+
+  // Async delete: two-step confirm, POST in the background, on 204 remove
+  // the row in place + update the per-tab and total counts. Avoids the
+  // full-page reload that the redirect-based flow does, which dumps the
+  // user's scroll position back to the top.
   document.querySelectorAll('.delete-form').forEach(function(f) {
     f.addEventListener('submit', function(e) {
       e.preventDefault();
-      var name = f.dataset.name || 'this recipe';
-      if (!confirm('Delete "' + name + '"? This cannot be undone.')) return;
+      var btn = f.querySelector('button');
+      if (!armConfirm(btn, 'click to delete')) return;
 
       var row = f.closest('tr');
       var meal = row && row.dataset.meal;
@@ -554,12 +587,11 @@ function scheduleNutritionRefresh() {
   document.querySelectorAll('.exclude-form').forEach(function(f) {
     f.addEventListener('submit', function(e) {
       e.preventDefault();
-      var name = f.dataset.name || 'this recipe';
-      if (!confirm('Exclude "' + name + '" from the master library? This deletes your copy AND prevents it from re-appearing in anyone’s library on future re-syncs or signups. Existing copies in other users’ libraries are not removed.')) return;
+      var btn = f.querySelector('button');
+      if (!armConfirm(btn, 'click to exclude')) return;
       var row = f.closest('tr');
       var meal = row && row.dataset.meal;
       var wasFav = row && row.dataset.favorite === '1';
-      var btn = f.querySelector('button');
       if (btn) { btn.disabled = true; btn.textContent = 'excluding…'; }
       fetch(f.action, {
         method: 'POST',

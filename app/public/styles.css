@@ -317,6 +317,19 @@ button.link:hover { text-decoration: underline; color: var(--burgundy-ink); }
 
 .delete-link { color: var(--danger); }
 .delete-link:hover { color: #7e1828; }
+/* Two-step confirm: armed state for destructive row buttons. First click
+   triggers this; second click within ~3.5s commits the action. */
+.confirm-armed {
+  background: rgba(176, 32, 36, 0.12);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-weight: 600;
+  animation: confirm-pulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes confirm-pulse {
+  from { background: rgba(176, 32, 36, 0.10); }
+  to   { background: rgba(176, 32, 36, 0.22); }
+}
 
 /* ============================================================
  * Forms
