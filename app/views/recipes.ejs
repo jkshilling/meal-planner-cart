@@ -292,6 +292,13 @@ document.addEventListener('DOMContentLoaded', function() {
         // Round to 2 decimal places. Trim trailing zeros so "1.00" shows as "1".
         qInput.value = String(+scaled.toFixed(2));
       });
+      // Scale est_cost by the same ratio — when you halve a recipe, the
+      // ingredients halve, and so should the per-recipe cost estimate.
+      var costInput = document.querySelector('.recipe-form-card input[name="est_cost"]');
+      if (costInput) {
+        var c = parseFloat(costInput.value);
+        if (isFinite(c)) costInput.value = String(+(c * ratio).toFixed(2));
+      }
       lastServings = newServings;
       scheduleNutritionRefresh();
     });
