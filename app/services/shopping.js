@@ -122,12 +122,23 @@ function loadShoppingItems(planId) {
 }
 
 function updateShoppingItem(id, fields) {
-  const allowed = ['name', 'quantity', 'unit', 'notes', 'approved'];
+  const allowed = ['name', 'quantity', 'unit', 'notes', 'approved', 'done'];
   const set = [], vals = [];
   for (const k of allowed) if (k in fields) { set.push(`${k} = ?`); vals.push(fields[k]); }
   if (!set.length) return;
   vals.push(id);
   db.prepare(`UPDATE shopping_items SET ${set.join(', ')} WHERE id = ?`).run(...vals);
+}
+
+// Flip the done bit for a shopping item and return the new value. Used
+// by the AJAX checkbox handler in shopping.ejs so the user can tick off
+// items while shopping without losing scroll/context.
+function toggleDone(itemId) {
+  const row = db.prepare('SELECT done FROM shopping_items WHERE id = ?').get(itemId);
+  if (!row) return null;
+  const next = row.done ? 0 : 1;
+  db.prepare('UPDATE shopping_items SET done = ? WHERE id = ?').run(next, itemId);
+  return next;
 }
 
 function deleteShoppingItem(id) {
@@ -145,5 +156,6 @@ module.exports = {
   loadShoppingItems,
   updateShoppingItem,
   deleteShoppingItem,
-  addManualItem
+  addManualItem,
+  toggleDone
 };

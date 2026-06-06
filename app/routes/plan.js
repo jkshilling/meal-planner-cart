@@ -54,6 +54,7 @@ router.post('/plan/:id/shopping/item', requireAuth, (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (!loadOwnedPlan(req, res, id)) return;
   const b = req.body;
+  let newDone = null;
   if (b.action === 'add') {
     shopping.addManualItem(id, {
       name: (b.name || '').trim(),
@@ -62,6 +63,8 @@ router.post('/plan/:id/shopping/item', requireAuth, (req, res) => {
     });
   } else if (b.action === 'delete') {
     shopping.deleteShoppingItem(parseInt(b.item_id, 10));
+  } else if (b.action === 'toggle-done') {
+    newDone = shopping.toggleDone(parseInt(b.item_id, 10));
   } else if (b.action === 'update') {
     shopping.updateShoppingItem(parseInt(b.item_id, 10), {
       name: b.name,
@@ -69,6 +72,12 @@ router.post('/plan/:id/shopping/item', requireAuth, (req, res) => {
       unit: b.unit,
       approved: b.approved ? 1 : 0
     });
+  }
+  // AJAX clients (the shopping.ejs checkbox handler) get JSON so the page
+  // doesn't reload while ticking through the list at the store. Plain
+  // form submitters keep the redirect for no-JS fallback.
+  if ((req.get('Accept') || '').includes('application/json')) {
+    return res.json({ ok: true, done: newDone });
   }
   res.redirect('/plan/' + id + '/shopping');
 });

@@ -444,6 +444,11 @@ ensureColumn('household_members', 'packed_recipe_ids_json',   `TEXT NOT NULL DEF
 // from future sources.
 ensureColumn('recipes', 'source_id', 'TEXT');
 
+// Shopping-list per-item "done" state. Lets the user tick off items as
+// they shop without losing context (the list stays on screen, just with
+// strikethroughs). Defaults to 0 so existing rows aren't pre-checked.
+ensureColumn('shopping_items', 'done', 'INTEGER NOT NULL DEFAULT 0');
+
 // Audit column for the LLM-canonicalize fallback (services/llm_canonicalize).
 // When services/usda.searchFood gets zero FDC candidates for an ingredient
 // name, it asks the LLM for a USDA-friendlier rewrite and retries with that.

@@ -6,11 +6,26 @@
   <% if (!items.length) { %>
     <p class="muted">Empty. Build a list from the approved plan first.</p>
   <% } else { %>
-    <table class="grid-table">
-      <thead><tr><th>Name</th><th>Qty</th><th>Unit</th><th>Approved</th><th></th><th></th></tr></thead>
+    <%
+      var doneCount = items.filter(function(it) { return it.done; }).length;
+    %>
+    <p class="muted" style="margin-bottom: 10px;">
+      <span id="shopping-progress"><%= doneCount %> of <%= items.length %></span> items done
+      <% if (items.length && doneCount === items.length) { %><span>· 🎉</span><% } %>
+    </p>
+    <table class="grid-table shopping-table">
+      <thead><tr><th style="width:32px"></th><th>Name</th><th>Qty</th><th>Unit</th><th>Approved</th><th></th><th></th></tr></thead>
       <tbody>
         <% items.forEach(function(it) { %>
-          <tr>
+          <tr class="shopping-row <%= it.done ? 'shopping-row-done' : '' %>" data-id="<%= it.id %>">
+            <td>
+              <form method="post" action="/plan/<%= plan.id %>/shopping/item" class="toggle-done-form" data-id="<%= it.id %>" style="display:inline">
+                <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
+                <input type="hidden" name="action" value="toggle-done" />
+                <input type="hidden" name="item_id" value="<%= it.id %>" />
+                <input type="checkbox" class="done-checkbox" <%= it.done ? 'checked' : '' %> aria-label="Mark item done" />
+              </form>
+            </td>
             <td>
               <form id="upd-<%= it.id %>" method="post" action="/plan/<%= plan.id %>/shopping/item">
                 <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
@@ -54,5 +69,64 @@
     from this app via your personal API token — set up in <a href="/settings#grocery-extension">Settings</a>.
   </p>
 </section>
+
+<script>
+// Async done-toggle. Tick the checkbox while shopping; row strikethroughs
+// in place, progress counter updates, no page reload. POST + Accept JSON
+// is the same pattern used elsewhere in the app (recipe delete, plan
+// slot updates) for state changes that shouldn't dump scroll.
+(function() {
+  var progressEl = document.getElementById('shopping-progress');
+  var totalItems = document.querySelectorAll('.shopping-row').length;
+  function refreshProgress() {
+    if (!progressEl) return;
+    var doneNow = document.querySelectorAll('.shopping-row-done').length;
+    progressEl.textContent = doneNow + ' of ' + totalItems;
+  }
+  document.querySelectorAll('.toggle-done-form').forEach(function(f) {
+    var checkbox = f.querySelector('.done-checkbox');
+    if (!checkbox) return;
+    checkbox.addEventListener('change', function() {
+      var row = f.closest('.shopping-row');
+      // Optimistic UI: toggle the class immediately so the strikethrough
+      // is instant. If the request fails, we revert.
+      var wasDone = row.classList.contains('shopping-row-done');
+      row.classList.toggle('shopping-row-done', checkbox.checked);
+      refreshProgress();
+      var fd = new FormData(f);
+      fetch(f.action, {
+        method: 'POST',
+        headers: { 'Accept': 'application/json' },
+        body: fd
+      })
+      .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+      .then(function(data) {
+        // Sync to the server's actual state (in case of race / drift).
+        var serverDone = data.done === 1;
+        row.classList.toggle('shopping-row-done', serverDone);
+        checkbox.checked = serverDone;
+        refreshProgress();
+      })
+      .catch(function(err) {
+        // Revert optimistic UI on failure.
+        row.classList.toggle('shopping-row-done', wasDone);
+        checkbox.checked = wasDone;
+        refreshProgress();
+        alert('Could not save: ' + err.message);
+      });
+    });
+  });
+})();
+</script>
+<style>
+.shopping-row-done td:nth-child(2) input,
+.shopping-row-done td:nth-child(3) input,
+.shopping-row-done td:nth-child(4) input {
+  text-decoration: line-through;
+  color: var(--ink-muted);
+}
+.shopping-row-done { opacity: 0.7; }
+.done-checkbox { transform: scale(1.4); cursor: pointer; }
+</style>
 
 <%- include('partials/footer') %>
