@@ -13,6 +13,36 @@
 <% /* New/Edit form — collapsed by default unless editing */ %>
 <section class="card recipe-form-card" id="recipe-form-card" style="<%= editing ? '' : 'display:none' %>">
   <h2><%= editing ? 'Edit recipe' : 'New recipe' %></h2>
+
+  <% if (justClipped && editing && householdDinerCount && editing.servings > householdDinerCount) { %>
+    <div id="just-clipped-banner" style="background: rgba(126, 155, 111, 0.10); border-left: 3px solid var(--sage); border-radius: 4px; padding: 12px 16px; margin-bottom: 14px;">
+      <strong>Just clipped from the web.</strong>
+      The source recipe says <strong><%= editing.servings %> servings</strong>, but your household plans
+      <strong><%= householdDinerCount %> diner<%= householdDinerCount === 1 ? '' : 's' %></strong> for this meal type. Scale it down so the shopping list buys for the right portion?
+      <div style="margin-top: 8px;">
+        <button type="button" id="just-clipped-scale" class="btn">Scale to <%= householdDinerCount %> servings</button>
+        <button type="button" id="just-clipped-dismiss" class="link" style="margin-left: 8px;">Keep as is</button>
+      </div>
+    </div>
+    <script>
+      (function() {
+        var banner = document.getElementById('just-clipped-banner');
+        var scaleBtn = document.getElementById('just-clipped-scale');
+        var dismissBtn = document.getElementById('just-clipped-dismiss');
+        var servingsInput = document.querySelector('.recipe-form-card input[name="servings"]');
+        scaleBtn.addEventListener('click', function() {
+          // Set to the household diner count and dispatch a change event;
+          // the existing servings handler will auto-scale ingredients +
+          // cost in the same way as a manual edit. No saving — user
+          // still clicks the form's Save button to commit.
+          servingsInput.value = '<%= householdDinerCount %>';
+          servingsInput.dispatchEvent(new Event('change'));
+          banner.style.display = 'none';
+        });
+        dismissBtn.addEventListener('click', function() { banner.style.display = 'none'; });
+      })();
+    </script>
+  <% } %>
   <form method="post" action="<%= editing ? '/recipes/' + editing.id : '/recipes' %>" class="stack">
     <input type="hidden" name="_csrf" value="<%= csrfToken %>" />
     <div class="row">

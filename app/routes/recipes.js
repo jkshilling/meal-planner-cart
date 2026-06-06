@@ -121,7 +121,27 @@ router.get('/recipes', requireAuth, (req, res) => {
     }
   }
 
-  res.render('recipes', { title: 'Recipes', recipes, editing, counts });
+  // Just-clipped detection: the Recipe Clipper extension appends
+  // ?just_clipped=1 after a successful import. When we see it, surface
+  // a one-time prompt on the recipe edit page so the user can scale the
+  // recipe's servings to match their household before saving. Without
+  // this, NYT's recipeYield ("4 servings") flows straight into the DB
+  // and the shopping list buys ingredients for 4 even if you're 1 diner.
+  const justClipped = req.query.just_clipped === '1' && editing != null;
+  let householdDinerCount = 0;
+  if (justClipped && profile) {
+    // Count members whose meal_behavior is 'plan' for THIS recipe's
+    // meal type — that's the relevant scale target. For sides, fall
+    // back to the dinner diner count (sides typically pair with
+    // dinner).
+    const targetMealType = editing.meal_type === 'side' ? 'dinner' : editing.meal_type;
+    householdDinerCount = dinersFor(profile, targetMealType) || 1;
+  }
+
+  res.render('recipes', {
+    title: 'Recipes', recipes, editing, counts,
+    justClipped, householdDinerCount
+  });
 });
 
 // Compute estimated nutrition for a list of ingredients without persisting.

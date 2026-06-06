@@ -23,19 +23,44 @@ async function getConfig() {
 }
 
 // Run inside the page to extract the @type=Recipe entry from the
-// JSON-LD scripts. Some pages wrap multiple objects in an array, others
-// nest under @graph; this handles the common shapes.
+// JSON-LD scripts. Schema.org Recipe can show up in a few shapes:
+//   - top-level object: { "@type": "Recipe", ... }
+//   - top-level array:  [ { "@type": "Recipe", ... }, ... ]
+//   - inside @graph:    { "@graph": [ { "@type": "Recipe", ... } ] }
+//   - nested as mainEntity: { "mainEntity": { "@type": "Recipe", ... } }
+//   - @type as array:   { "@type": ["Recipe", "NewsArticle"], ... }
+// Walks all of them recursively so a recipe wrapped in any common
+// structure gets found. Returns the first Recipe-typed node it sees.
 function extractRecipeFromPage() {
+  function typeMatches(t) {
+    if (!t) return false;
+    if (typeof t === 'string') return t === 'Recipe';
+    if (Array.isArray(t)) return t.includes('Recipe');
+    return false;
+  }
+  function walk(node) {
+    if (!node || typeof node !== 'object') return null;
+    if (typeMatches(node['@type'])) return node;
+    // Walk arrays + @graph + mainEntity + nested objects.
+    if (Array.isArray(node)) {
+      for (const item of node) { const hit = walk(item); if (hit) return hit; }
+      return null;
+    }
+    if (Array.isArray(node['@graph'])) {
+      for (const item of node['@graph']) { const hit = walk(item); if (hit) return hit; }
+    }
+    if (node.mainEntity) {
+      const hit = walk(node.mainEntity);
+      if (hit) return hit;
+    }
+    return null;
+  }
   const blocks = [...document.querySelectorAll('script[type="application/ld+json"]')];
   for (const b of blocks) {
     let data;
     try { data = JSON.parse(b.textContent); } catch (e) { continue; }
-    const items = Array.isArray(data) ? data
-      : Array.isArray(data['@graph']) ? data['@graph']
-      : [data];
-    for (const item of items) {
-      if (item && item['@type'] === 'Recipe') return item;
-    }
+    const hit = walk(data);
+    if (hit) return hit;
   }
   return null;
 }
@@ -72,7 +97,11 @@ function showSuccess(data, apiBase) {
   $('success-msg').textContent = msg;
   const link = $('open-recipe');
   if (data.recipe_id) {
-    link.href = `${apiBase}/recipes?edit=${data.recipe_id}`;
+    // Append ?just_clipped=1 so the recipe edit page knows to show the
+    // one-time "scale to your household" prompt. Skip on duplicate
+    // imports — those aren't fresh, the user already has them.
+    const justClippedParam = data.duplicate ? '' : '&just_clipped=1';
+    link.href = `${apiBase}/recipes?edit=${data.recipe_id}${justClippedParam}`;
     link.style.display = '';
   } else {
     link.style.display = 'none';
@@ -116,10 +145,11 @@ async function importRecipe(recipe, tab) {
 (async () => {
   const tab = await getActiveTab();
   if (!tab || !tab.url) { showError('No active tab.'); return; }
-  if (!/cooking\.nytimes\.com\/recipes\//.test(tab.url)) {
-    showError('Open a NYT Cooking recipe page first.');
-    return;
-  }
+  // Skip the URL gate — any page with a schema.org Recipe JSON-LD block
+  // works. NYT Cooking is the primary target, but Bon Appétit, Serious
+  // Eats, food52, allrecipes, smitten kitchen, etc. all publish the same
+  // structured format for Google. The JSON-LD walker decides whether
+  // there's a recipe here; if not, we say so.
   let recipe;
   try {
     recipe = await readJsonLd(tab.id);
@@ -128,7 +158,7 @@ async function importRecipe(recipe, tab) {
     return;
   }
   if (!recipe) {
-    showError('No recipe data found on this page.');
+    showError('No recipe data found on this page. Open a recipe and try again.');
     return;
   }
   showPreview(recipe);

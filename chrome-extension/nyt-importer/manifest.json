@@ -1,11 +1,10 @@
 {
   "manifest_version": 3,
   "name": "NYT Recipe Clipper",
-  "version": "0.1.0",
-  "description": "One-click import recipes from NYT Cooking and other sites into your Meal Planner library.",
+  "version": "0.2.0",
+  "description": "One-click import recipes from NYT Cooking, Bon Appétit, Serious Eats, food52, and any site publishing schema.org Recipe JSON-LD.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [
-    "https://cooking.nytimes.com/*",
     "https://meals.alaskatargeting.com/*",
     "http://localhost:3000/*"
   ],
