@@ -153,6 +153,40 @@
   <a class="btn" href="/recipes">Manage recipes</a>
 </div>
 
+<% if (partialRecipes && partialRecipes.length) { %>
+  <div class="card" id="partial-recipes">
+    <h2>Recipes with partial nutrition coverage</h2>
+    <p class="muted">
+      <strong><%= partialRecipes.length %></strong>
+      recipe<%= partialRecipes.length === 1 ? '' : 's' %>
+      ha<%= partialRecipes.length === 1 ? 's' : 've' %> at least one ingredient
+      USDA didn't recognize, so the displayed calories are undercounted. Click
+      a recipe to fix the ingredient name — usually a more standard spelling
+      resolves it (e.g. <em>"regular olive oil"</em> → <em>"olive oil"</em>).
+    </p>
+    <table class="grid-table">
+      <thead>
+        <tr>
+          <th>Recipe</th>
+          <th>Meal type</th>
+          <th>Coverage</th>
+          <th>Missing</th>
+        </tr>
+      </thead>
+      <tbody>
+        <% partialRecipes.forEach(function(r) { %>
+          <tr>
+            <td><a href="/recipes?edit=<%= r.id %>"><%= r.name %></a></td>
+            <td><span class="tag meal-tag meal-<%= r.meal_type %>"><%= r.meal_type %></span></td>
+            <td><%= r.covered %> / <%= r.total %></td>
+            <td class="muted tiny"><%= r.missing %> ingredient<%= r.missing === 1 ? '' : 's' %></td>
+          </tr>
+        <% }) %>
+      </tbody>
+    </table>
+  </div>
+<% } %>
+
 <div class="card" id="ingredient-coverage">
   <h2>Ingredient nutrition coverage</h2>
   <p class="muted">

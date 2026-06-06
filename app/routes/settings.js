@@ -1,6 +1,6 @@
 const express = require('express');
 const db = require('../db');
-const { loadProfile } = require('../services/planner');
+const { loadProfile, attachNutrition } = require('../services/planner');
 const groceryToken = require('../services/grocery_token');
 const household = require('../services/household');
 const invites = require('../services/invites');
@@ -115,12 +115,57 @@ router.get('/settings', requireAuth, (req, res) => {
     ingredientCoverage.matched = matched;
     ingredientCoverage.unmatched = unmatched;
   }
+
+  // Recipes with partial nutrition coverage: the per-ingredient ✓/✗ list
+  // above tells the user WHICH names aren't matching, but not which recipes
+  // are most affected. This tile bridges that — load every recipe, attach
+  // covered/total via the shared planner helper, and surface the ones
+  // where covered < total so they're a single click away. The list of
+  // names in `ingredientCoverage.unmatched` already shows recipes-using-
+  // each-name, but going the other direction ("show me the recipes I
+  // need to fix") is the actually-useful triage path.
+  const partialRecipes = [];
+  const allRecipes = db.prepare(
+    'SELECT id, name, meal_type FROM recipes WHERE user_id = ? ORDER BY name'
+  ).all(uid);
+  const allIds = allRecipes.map(r => r.id);
+  if (allIds.length) {
+    const placeholders = allIds.map(() => '?').join(',');
+    const allIngs = db.prepare(
+      `SELECT * FROM recipe_ingredients WHERE recipe_id IN (${placeholders})`
+    ).all(...allIds);
+    const byRecipe = {};
+    for (const r of allRecipes) { r.ingredients = []; byRecipe[r.id] = r; }
+    for (const ing of allIngs) {
+      if (byRecipe[ing.recipe_id]) byRecipe[ing.recipe_id].ingredients.push(ing);
+    }
+    attachNutrition(allRecipes);
+    for (const r of allRecipes) {
+      const cov = r.nutrition_covered || 0;
+      const tot = r.nutrition_total   || 0;
+      if (tot > 0 && cov < tot) {
+        partialRecipes.push({
+          id: r.id, name: r.name, meal_type: r.meal_type,
+          covered: cov, total: tot,
+          missing: tot - cov
+        });
+      }
+    }
+    // Sort by impact: most-missing first, then most-recipe-ingredients
+    // first within the same gap, then alphabetical. The recipe with the
+    // most unmatched ingredients is the highest-ROI to fix.
+    partialRecipes.sort((a, b) =>
+      b.missing - a.missing || b.total - a.total || a.name.localeCompare(b.name)
+    );
+  }
+
   res.render('settings', {
     title: 'Settings',
     profile,
     recipes,
     libraryCounts,
     ingredientCoverage,
+    partialRecipes,
     saved: req.query.saved === '1',
     groceryToken: groceryToken.ensureForUser(uid),
     tokenRotated: req.query.tokenRotated === '1',
