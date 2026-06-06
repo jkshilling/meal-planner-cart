@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const planner = require('../services/planner');
+const { loadProfile } = require('../services/planner');
 const household = require('../services/household');
 const { requireAuth, userIdOf } = require('../services/auth');
 
@@ -12,7 +13,22 @@ router.get('/planner', requireAuth, (req, res) => {
   if (!p) return res.status(500).render('error', { title: 'No household', message: 'No household found.' });
   const latest = db.prepare('SELECT * FROM weekly_plans WHERE user_id = ? ORDER BY id DESC LIMIT 1').get(uid);
   if (latest) return res.redirect('/plan/' + latest.id);
-  res.render('planner_empty', { title: 'Weekly Planner' });
+
+  // Surface recipe counts per meal type so the empty-state page can warn
+  // the user about sparse library before they hit Generate. Without this,
+  // generating against (say) zero lunch recipes silently produces a plan
+  // with 7 empty lunch slots and no explanation.
+  const fullProfile = loadProfile(p.id);
+  const countsRows = db.prepare(
+    'SELECT meal_type, COUNT(*) AS n FROM recipes WHERE user_id = ? GROUP BY meal_type'
+  ).all(uid);
+  const recipeCounts = {};
+  for (const row of countsRows) recipeCounts[row.meal_type] = row.n;
+  res.render('planner_empty', {
+    title: 'Weekly Planner',
+    enabledMealTypes: fullProfile.meal_types,
+    recipeCounts
+  });
 });
 
 // List every plan the user owns. Used to delete old plans and to navigate
@@ -22,6 +38,21 @@ router.get('/planner', requireAuth, (req, res) => {
 // library was populated for that meal type).
 router.get('/plans', requireAuth, (req, res) => {
   const uid = userIdOf(req);
+
+  // Auto-prune fully-empty plans (no filled slots at all). These accumulated
+  // historically when the user regenerated against a too-thin library. The
+  // user's MOST RECENT plan is preserved unconditionally — they might've
+  // just generated it and be looking at it from /planner.
+  db.prepare(`
+    DELETE FROM weekly_plans
+     WHERE user_id = ?
+       AND id NOT IN (SELECT MAX(id) FROM weekly_plans WHERE user_id = ?)
+       AND NOT EXISTS (
+         SELECT 1 FROM weekly_plan_items
+          WHERE plan_id = weekly_plans.id AND recipe_id IS NOT NULL
+       )
+  `).run(uid, uid);
+
   const plans = db.prepare(`
     SELECT p.id, p.start_date, p.status, p.total_cost, p.created_at,
            (SELECT COUNT(*) FROM weekly_plan_items WHERE plan_id = p.id) AS slots,
@@ -51,6 +82,13 @@ router.post('/planner/generate', requireAuth, (req, res) => {
   const p = household.profileForUser(uid);
   if (!p) return res.status(500).render('error', { title: 'No household', message: 'No household found.' });
   try {
+    // Drafts overwrite themselves on regen — the previous "always insert
+    // a new row" behavior accumulated stale empty plans every time the
+    // user hit Regenerate, cluttering /plans. Approved plans are history
+    // and stay put; only unapproved drafts get cleared.
+    db.prepare(
+      "DELETE FROM weekly_plans WHERE user_id = ? AND status = 'draft'"
+    ).run(uid);
     const generated = planner.generatePlan(p.id, uid);
     const planId = planner.savePlan(p.id, generated, uid);
     res.redirect('/plan/' + planId);

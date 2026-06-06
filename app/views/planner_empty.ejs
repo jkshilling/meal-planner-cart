@@ -1,5 +1,41 @@
 <%- include('partials/header') %>
 <h1>Weekly Planner</h1>
+
+<%
+  // Per-meal-type sparsity check. A meal type is "thin" when the user has
+  // fewer recipes than the planner needs slots for it (7 per week per meal
+  // type). Anything under ~3 will produce a plan dominated by repeats.
+  var THIN_THRESHOLD = 3;
+  var thin = (enabledMealTypes || []).filter(function(mt) {
+    return (recipeCounts[mt] || 0) < THIN_THRESHOLD;
+  });
+%>
+
+<% if (thin.length) { %>
+  <section class="card" style="border-left: 3px solid #c88b3a; background: #fcf4e8;">
+    <h2 style="margin-top: 0;">Your library is thin in some meal types</h2>
+    <p class="muted" style="margin-top: 0;">
+      The planner needs ~7 recipes per meal type to avoid repeats. Below that, generated
+      plans will have empty slots or the same recipe on multiple days. Library counts:
+    </p>
+    <ul style="margin: 6px 0 14px;">
+      <% (enabledMealTypes || []).forEach(function(mt) { var n = recipeCounts[mt] || 0; %>
+        <li>
+          <strong><%= mt %></strong>: <%= n %> recipe<%= n === 1 ? '' : 's' %>
+          <% if (n < THIN_THRESHOLD) { %>
+            <span style="color: #b00020;">— too few</span>
+          <% } %>
+        </li>
+      <% }) %>
+    </ul>
+    <p class="muted tiny" style="margin-bottom: 0;">
+      Clip more from <a href="https://cooking.nytimes.com">NYT Cooking</a> with the
+      Recipe Clipper, or add hand-entered recipes on <a href="/recipes">/recipes</a>.
+      You can generate a plan now and it'll work — just expect gaps.
+    </p>
+  </section>
+<% } %>
+
 <section class="card" style="text-align:center; padding: 48px 28px;">
   <h2 style="margin-bottom: 10px;">Ready when you are.</h2>
   <p class="muted" style="margin: 0 auto 24px; max-width: 440px;">
